@@ -21,15 +21,21 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server ./cmd/serv
 # Estágio final
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates tzdata wget
-WORKDIR /root/
+# 1. Instalar pacotes necessários
+RUN apk --no-cache add ca-certificates
 
-# Copiar o binário
+# 2. Criar um diretório para a aplicação
+WORKDIR /app
+
+# 3. Copiar o binário para o diretório de trabalho
 COPY --from=builder /app/server .
 
-# Copiar migrations
+# 4. Copiar as migrations para um subdiretório
 COPY --from=builder /app/internal/migrations/files ./internal/migrations/files
 
+# 5. Expor a porta
 EXPOSE 8080
 
+# 6. Rodar a aplicação
 CMD ["./server"]
+
