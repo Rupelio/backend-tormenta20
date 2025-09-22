@@ -1,0 +1,15 @@
+INSERT INTO classes (nome, pv_por_nivel, pm_por_nivel, atributo_principal) VALUES
+('Arcanista', 8, 6, 'INT ou CAR'),
+('Bárbaro', 24, 3, 'FOR'),
+('Bardo', 12, 4, 'CAR'),
+('Bucaneiro', 16, 3, 'DES'),
+('Caçador', 16, 4, 'FOR ou DES'),
+('Cavaleiro', 20, 3, 'FOR'),
+('Clérigo', 16, 5, 'SAB'),
+('Druida', 16, 4, 'SAB'),
+('Guerreiro', 20, 3, 'FOR ou DES'),
+('Inventor', 12, 4, 'INT'),
+('Ladino', 12, 4, 'DES ou INT'),
+('Lutador', 20, 3, 'FOR'),
+('Nobre', 16, 4, 'CAR'),
+('Paladino', 20, 3, 'FOR e CAR');
