@@ -15,7 +15,7 @@ func SetupCORS() gin.HandlerFunc {
 	return cors.New(cors.Config{
 		AllowOrigins:     []string{"*"}, // Permitir todas as origens para produção
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"}, 
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
 		AllowCredentials: false, // Desabilitar credentials quando AllowOrigins é "*"
 		MaxAge:           12 * time.Hour,
 	})
