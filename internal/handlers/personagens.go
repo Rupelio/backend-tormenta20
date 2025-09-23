@@ -255,9 +255,16 @@ func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 		// Buscar perícias válidas
 		var pericias []models.Pericia
 		if err := database.DB.Where("id IN ?", req.PericiasSelecionadas).Find(&pericias).Error; err == nil {
-			// Associar perícias ao personagem
-			if err := database.DB.Model(&personagem).Association("Pericias").Replace(&pericias); err != nil {
-				fmt.Printf("Erro ao associar perícias ao personagem: %v\n", err)
+			// Criar registros de PersonagemPericia com fonte 'classe' (padrão para perícias selecionadas na criação)
+			for _, pericia := range pericias {
+				personagemPericia := models.PersonagemPericia{
+					PersonagemID: personagem.ID,
+					PericiaID:    pericia.ID,
+					Fonte:        "classe",
+				}
+				if err := database.DB.Create(&personagemPericia).Error; err != nil {
+					fmt.Printf("Erro ao associar perícia %d ao personagem: %v\n", pericia.ID, err)
+				}
 			}
 		}
 	}

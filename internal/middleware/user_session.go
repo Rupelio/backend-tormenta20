@@ -23,15 +23,30 @@ func UserSessionMiddleware() gin.HandlerFunc {
 			// 2. Se não existe, cria nova sessão
 			sessionID = uuid.New().String()
 
+			// 3. Determina se está em HTTPS (produção)
+			isSecure := c.GetHeader("X-Forwarded-Proto") == "https" || 
+						c.Request.TLS != nil ||
+						strings.HasPrefix(c.Request.Host, "backend-tormenta20.fly.dev")
+
+			// 4. Determina o domínio para o cookie
+			domain := ""
+			if strings.Contains(c.Request.Host, "tormenta20") {
+				if strings.Contains(c.Request.Host, "fly.dev") {
+					domain = ".fly.dev"
+				} else if strings.Contains(c.Request.Host, "vercel.app") {
+					domain = ".vercel.app"
+				}
+			}
+
 			// Define cookie com sessão (httpOnly para segurança)
 			c.SetCookie(
 				UserSessionCookie,
 				sessionID,
 				60*60*24*30, // 30 dias
 				"/",
-				"",
-				false, // secure (deve ser true em HTTPS)
-				true,  // httpOnly
+				domain,
+				isSecure, // secure em HTTPS
+				false,    // httpOnly - false para permitir acesso via JS se necessário
 			)
 		}
 
