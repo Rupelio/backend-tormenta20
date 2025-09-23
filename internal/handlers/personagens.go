@@ -4,9 +4,11 @@ import (
 	"net/http"
 
 	"tormenta20-builder/internal/database"
+	"tormenta20-builder/internal/middleware"
 	"tormenta20-builder/internal/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type PersonagemHandler struct {
@@ -35,27 +37,222 @@ func (h *PersonagemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 
 func (h *PersonagemHandler) GetAllPersonagens(c *gin.Context) {
 	var personagens []models.Personagem
-	h.GetAll(c, &personagens, "Raca", "Classe", "Origem")
+
+	// Obtém identificação do usuário
+	sessionID, userIP := middleware.GetUserIdentification(c)
+
+	// Constrói query para filtrar personagens do usuário
+	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem")
+
+	if sessionID != "" {
+		// Prioriza session ID se disponível
+		query = query.Where("user_session_id = ?", sessionID)
+	} else if userIP != "" {
+		// Fallback para IP se não há session
+		query = query.Where("user_ip = ?", userIP)
+	} else {
+		// Se não há identificação, retorna vazio (não deve acontecer com middleware)
+		c.JSON(http.StatusOK, []models.Personagem{})
+		return
+	}
+
+	if err := query.Find(&personagens).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao buscar personagens: "+err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, personagens)
 }
 
 func (h *PersonagemHandler) GetPersonagem(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		h.Response.BadRequest(c, "ID inválido")
+		return
+	}
+
 	var personagem models.Personagem
-	h.GetByID(c, &personagem, "Personagem não encontrado", "Raca", "Classe", "Origem")
+	sessionID, userIP := middleware.GetUserIdentification(c)
+
+	// Constrói query para buscar personagem do usuário
+	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem")
+
+	if sessionID != "" {
+		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
+	} else if userIP != "" {
+		query = query.Where("id = ? AND user_ip = ?", id, userIP)
+	} else {
+		h.Response.NotFound(c, "Personagem não encontrado")
+		return
+	}
+
+	if err := query.First(&personagem).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			h.Response.NotFound(c, "Personagem não encontrado")
+		} else {
+			h.Response.InternalError(c, "Erro ao buscar personagem")
+		}
+		return
+	}
+
+	h.Response.Success(c, personagem)
 }
 
 func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 	var personagem models.Personagem
-	h.Create(c, &personagem, "Raca", "Classe", "Origem")
+
+	// Bind dos dados do personagem
+	if err := c.ShouldBindJSON(&personagem); err != nil {
+		h.Response.BadRequest(c, err.Error())
+		return
+	}
+
+	// Validar estrutura
+	if err := validate.Struct(personagem); err != nil {
+		h.Response.BadRequest(c, err.Error())
+		return
+	}
+
+	// Obtém identificação do usuário e adiciona ao personagem
+	sessionID, userIP := middleware.GetUserIdentification(c)
+
+	if sessionID != "" {
+		personagem.UserSessionID = &sessionID
+		personagem.CreatedByType = "session"
+	}
+
+	if userIP != "" {
+		personagem.UserIP = &userIP
+		// Se tem session E IP, define como hybrid
+		if sessionID != "" {
+			personagem.CreatedByType = "hybrid"
+		} else {
+			personagem.CreatedByType = "ip"
+		}
+	}
+
+	// Garante que escolhas_raca seja um JSON válido
+	if personagem.EscolhasRaca == "" {
+		personagem.EscolhasRaca = "{}"
+	}
+
+	// Criar no banco
+	if err := database.DB.Create(&personagem).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao criar personagem")
+		return
+	}
+
+	// Recarregar com relações
+	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").First(&personagem, personagem.ID).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao carregar personagem criado")
+		return
+	}
+
+	h.Response.Created(c, personagem)
 }
 
 func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		h.Response.BadRequest(c, "ID inválido")
+		return
+	}
+
 	var personagem models.Personagem
-	h.Update(c, &personagem, "Personagem não encontrado", "Raca", "Classe", "Origem")
+	sessionID, userIP := middleware.GetUserIdentification(c)
+
+	// Primeiro, verifica se o personagem existe e pertence ao usuário
+	query := database.DB
+	if sessionID != "" {
+		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
+	} else if userIP != "" {
+		query = query.Where("id = ? AND user_ip = ?", id, userIP)
+	} else {
+		h.Response.NotFound(c, "Personagem não encontrado")
+		return
+	}
+
+	if err := query.First(&personagem).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			h.Response.NotFound(c, "Personagem não encontrado")
+		} else {
+			h.Response.InternalError(c, "Erro ao buscar personagem")
+		}
+		return
+	}
+
+	// Bind dos novos dados (preservando a identificação do usuário)
+	originalSessionID := personagem.UserSessionID
+	originalUserIP := personagem.UserIP
+	originalCreatedByType := personagem.CreatedByType
+
+	if err := c.ShouldBindJSON(&personagem); err != nil {
+		h.Response.BadRequest(c, err.Error())
+		return
+	}
+
+	// Restaura identificação original (não deve ser alterada)
+	personagem.UserSessionID = originalSessionID
+	personagem.UserIP = originalUserIP
+	personagem.CreatedByType = originalCreatedByType
+
+	// Validar estrutura
+	if err := validate.Struct(personagem); err != nil {
+		h.Response.BadRequest(c, err.Error())
+		return
+	}
+
+	// Salvar alterações
+	if err := database.DB.Save(&personagem).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao atualizar personagem")
+		return
+	}
+
+	// Recarregar com relações
+	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").First(&personagem, personagem.ID).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao carregar personagem atualizado")
+		return
+	}
+
+	h.Response.Success(c, personagem)
 }
 
 func (h *PersonagemHandler) DeletePersonagem(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		h.Response.BadRequest(c, "ID inválido")
+		return
+	}
+
 	var personagem models.Personagem
-	h.Delete(c, &personagem, "Personagem não encontrado")
+	sessionID, userIP := middleware.GetUserIdentification(c)
+
+	// Verifica se o personagem existe e pertence ao usuário
+	query := database.DB
+	if sessionID != "" {
+		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
+	} else if userIP != "" {
+		query = query.Where("id = ? AND user_ip = ?", id, userIP)
+	} else {
+		h.Response.NotFound(c, "Personagem não encontrado")
+		return
+	}
+
+	if err := query.First(&personagem).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			h.Response.NotFound(c, "Personagem não encontrado")
+		} else {
+			h.Response.InternalError(c, "Erro ao buscar personagem")
+		}
+		return
+	}
+
+	if err := database.DB.Delete(&personagem).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao deletar personagem")
+		return
+	}
+
+	c.JSON(http.StatusNoContent, nil)
 }
 
 // CalculateStats calcula as estatísticas de um personagem baseado em seus atributos, raça e classe

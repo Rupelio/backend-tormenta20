@@ -13,10 +13,10 @@ import (
 
 func SetupCORS() gin.HandlerFunc {
 	return cors.New(cors.Config{
-		AllowOrigins:     []string{"*"}, // Permitir todas as origens em desenvolvimento
+		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:3001"}, // Permitir origens específicas para credentials
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"*"}, // Permitir todos os headers
-		AllowCredentials: false,         // Desabilitar credentials com wildcard origin
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"}, // Headers específicos quando credentials=true
+		AllowCredentials: true,                                                                              // Habilitar credentials para envio de cookies
 		MaxAge:           12 * time.Hour,
 	})
 }

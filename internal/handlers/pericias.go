@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"tormenta20-builder/internal/models"
+
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -70,8 +71,8 @@ func (h *PericiasHandler) GetPericiasClasse(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"classe": classe.Nome,
-		"pericias_quantidade": classe.PericiasQuantidade,
+		"classe":               classe.Nome,
+		"pericias_quantidade":  classe.PericiasQuantidade,
 		"pericias_disponiveis": classe.PericiasDisponiveis,
 		"pericias_automaticas": classe.PericiasAutomaticas,
 	})
@@ -96,7 +97,7 @@ func (h *PericiasHandler) GetPericiasRaca(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"raca": raca.Nome,
+		"raca":     raca.Nome,
 		"pericias": raca.Pericias,
 	})
 }
@@ -120,7 +121,7 @@ func (h *PericiasHandler) GetPericiasOrigem(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"origem": origem.Nome,
+		"origem":   origem.Nome,
 		"pericias": origem.Pericias,
 	})
 }
@@ -224,15 +225,29 @@ func (h *PericiasHandler) UpdatePericiasPersonagem(c *gin.Context) {
 		return
 	}
 
-	// Substituir perícias do personagem
-	if err := h.db.Model(&personagem).Association("Pericias").Replace(pericias); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar perícias"})
+	// Substituir perícias do personagem manualmente com fonte
+	// Primeiro, remover perícias existentes escolhidas pelo usuário (fonte = 'classe')
+	if err := h.db.Where("personagem_id = ? AND fonte = ?", id, "classe").Delete(&models.PersonagemPericia{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao limpar perícias existentes"})
 		return
 	}
 
+	// Inserir novas perícias com fonte = 'classe'
+	for _, periciaID := range request.PericiasIDs {
+		personagemPericia := models.PersonagemPericia{
+			PersonagemID: uint(id),
+			PericiaID:    periciaID,
+			Fonte:        "classe",
+		}
+		if err := h.db.Create(&personagemPericia).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar perícias"})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Perícias atualizadas com sucesso",
-		"pericias_escolhidas": len(pericias),
+		"message":              "Perícias atualizadas com sucesso",
+		"pericias_escolhidas":  len(pericias),
 		"pericias_automaticas": len(periciasAutomaticas),
 	})
 }

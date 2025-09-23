@@ -34,7 +34,12 @@ type Personagem struct {
 	Pericias []Pericia `json:"pericias" gorm:"many2many:personagem_pericias;"`
 
 	// Escolhas específicas de raça (JSON)
-	EscolhasRaca string `json:"escolhas_raca" gorm:"column:escolhas_raca;type:jsonb"`
+	EscolhasRaca string `json:"escolhas_raca" gorm:"column:escolhas_raca;type:jsonb;default:'{}'"`
+
+	// Identificação do usuário/sessão
+	UserSessionID *string `json:"user_session_id" gorm:"column:user_session_id;type:varchar(36)"`
+	UserIP        *string `json:"user_ip" gorm:"column:user_ip;type:inet"`
+	CreatedByType string  `json:"created_by_type" gorm:"column:created_by_type;default:'session'"`
 
 	// Stats calculados (não salvos no DB)
 	PVTotal int `json:"pv_total" gorm:"-"`
@@ -178,4 +183,15 @@ type RacaHabilidadeEspecial struct {
 
 func (RacaHabilidadeEspecial) TableName() string {
 	return "raca_habilidades_especiais"
+}
+
+// PersonagemPericia representa a tabela intermediária com fonte
+type PersonagemPericia struct {
+	PersonagemID uint   `json:"personagem_id" gorm:"primaryKey"`
+	PericiaID    uint   `json:"pericia_id" gorm:"primaryKey"`
+	Fonte        string `json:"fonte" gorm:"primaryKey;type:varchar(50)"`
+}
+
+func (PersonagemPericia) TableName() string {
+	return "personagem_pericias"
 }

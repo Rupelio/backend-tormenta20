@@ -79,6 +79,7 @@ func setupRouter() *gin.Engine {
 	// Middleware
 	r.Use(middleware.SetupCORS())
 	r.Use(middleware.RequestLogger())
+	r.Use(middleware.UserSessionMiddleware()) // Adiciona gerenciamento de sessão
 
 	// Health check
 	r.GET("/health", healthCheck)
