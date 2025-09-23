@@ -15,7 +15,7 @@ func SetupCORS() gin.HandlerFunc {
 	return cors.New(cors.Config{
 		AllowOrigins: []string{
 			"http://localhost:3000",
-			"http://localhost:3001", 
+			"http://localhost:3001",
 			"https://frontend-tormenta20.vercel.app",
 			"https://backend-tormenta20.fly.dev",
 		},
