@@ -13,10 +13,15 @@ import (
 
 func SetupCORS() gin.HandlerFunc {
 	return cors.New(cors.Config{
-		AllowOrigins:     []string{"*"}, // Permitir todas as origens para produção
+		AllowOrigins: []string{
+			"http://localhost:3000",
+			"http://localhost:3001", 
+			"https://frontend-tormenta20.vercel.app",
+			"https://backend-tormenta20.fly.dev",
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
-		AllowCredentials: false, // Desabilitar credentials quando AllowOrigins é "*"
+		AllowCredentials: true, // Habilitar credentials com origens específicas
 		MaxAge:           12 * time.Hour,
 	})
 }
