@@ -24,9 +24,9 @@ func UserSessionMiddleware() gin.HandlerFunc {
 			sessionID = uuid.New().String()
 
 			// 3. Determina se está em HTTPS (produção)
-			isSecure := c.GetHeader("X-Forwarded-Proto") == "https" || 
-						c.Request.TLS != nil ||
-						strings.HasPrefix(c.Request.Host, "backend-tormenta20.fly.dev")
+			isSecure := c.GetHeader("X-Forwarded-Proto") == "https" ||
+				c.Request.TLS != nil ||
+				strings.HasPrefix(c.Request.Host, "backend-tormenta20.fly.dev")
 
 			// 4. Determina o domínio para o cookie
 			domain := ""
