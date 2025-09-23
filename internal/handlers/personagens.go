@@ -28,6 +28,8 @@ func (h *PersonagemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 		personagens.PUT("/:id", h.UpdatePersonagem)
 		personagens.DELETE("/:id", h.DeletePersonagem)
 		personagens.POST("/calculate", h.CalculateStats)
+		personagens.GET("/:id/export-pdf", h.ExportToPDF)
+		personagens.GET("/:id/test", h.TestRoute) // Rota de teste
 	}
 }
 
@@ -139,4 +141,31 @@ func (h *PersonagemHandler) CalculateStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// ExportToPDF exporta a ficha do personagem em formato PDF
+func (h *PersonagemHandler) ExportToPDF(c *gin.Context) {
+	id := c.Param("id")
+
+	var personagem models.Personagem
+	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").First(&personagem, id).Error; err != nil {
+		h.Response.NotFound(c, "Personagem não encontrado")
+		return
+	}
+
+	// Resposta temporária simplificada para testar se a rota funciona
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "PDF export funcionando",
+		"personagem": personagem.Nome,
+		"id":         id,
+	})
+}
+
+// TestRoute rota de teste para verificar se funciona
+func (h *PersonagemHandler) TestRoute(c *gin.Context) {
+	id := c.Param("id")
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Rota de teste funcionando",
+		"id":      id,
+	})
 }
