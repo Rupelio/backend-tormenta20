@@ -161,7 +161,11 @@ func (h *PericiasHandler) UpdatePericiasPersonagem(c *gin.Context) {
 		return
 	}
 
-	// Buscar perícias automáticas da raça e origem
+	// Separar perícias de classe das perícias de raça
+	var periciasClasse []uint
+	var periciasRaca []uint
+
+	// Buscar perícias automáticas da raça e origem para identificar quais são de raça
 	var raca models.Raca
 	var origem models.Origem
 	var periciasAutomaticas []models.Pericia
@@ -177,77 +181,132 @@ func (h *PericiasHandler) UpdatePericiasPersonagem(c *gin.Context) {
 	// Adicionar perícias automáticas da classe
 	periciasAutomaticas = append(periciasAutomaticas, classe.PericiasAutomaticas...)
 
-	// Validar que as perícias escolhidas estão disponíveis para a classe
+	// Separar perícias enviadas entre classe e raça
 	for _, periciaID := range request.PericiasIDs {
-		disponivel := false
+		// Verificar se é uma perícia disponível para a classe
+		disponivelParaClasse := false
 		for _, pericia := range classe.PericiasDisponiveis {
 			if pericia.ID == periciaID {
-				disponivel = true
+				disponivelParaClasse = true
 				break
 			}
 		}
-		if !disponivel {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("Perícia ID %d não está disponível para a classe %s", periciaID, classe.Nome),
-			})
-			return
-		}
 
-		// Verificar se não é uma perícia automática
+		// Verificar se é uma perícia automática (que não deve ser validada)
+		ehAutomatica := false
 		for _, automatica := range periciasAutomaticas {
 			if automatica.ID == periciaID {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": fmt.Sprintf("Perícia %s já é automática da raça/origem", automatica.Nome),
-				})
-				return
+				ehAutomatica = true
+				break
 			}
+		}
+
+		if ehAutomatica {
+			// Perícias automáticas não são salvas como escolhas do usuário
+			continue
+		} else if disponivelParaClasse {
+			// Perícia disponível para a classe - adicionar às perícias de classe
+			periciasClasse = append(periciasClasse, periciaID)
+		} else {
+			// Perícia não disponível para classe - assumir que é de raça/origem
+			periciasRaca = append(periciasRaca, periciaID)
 		}
 	}
 
-	// Validar quantidade de perícias
-	if len(request.PericiasIDs) > classe.PericiasQuantidade {
+	// Validar quantidade de perícias DE CLASSE apenas
+	if len(periciasClasse) > classe.PericiasQuantidade {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Máximo de %d perícias permitidas para %s", classe.PericiasQuantidade, classe.Nome),
+			"error": fmt.Sprintf("Máximo de %d perícias de classe permitidas para %s (recebidas %d)", classe.PericiasQuantidade, classe.Nome, len(periciasClasse)),
 		})
 		return
 	}
 
-	// Buscar perícias selecionadas
+	// Buscar todas as perícias selecionadas para verificar se existem
+	var todasPericias []uint
+	todasPericias = append(todasPericias, periciasClasse...)
+	todasPericias = append(todasPericias, periciasRaca...)
+
 	var pericias []models.Pericia
-	if err := h.db.Find(&pericias, request.PericiasIDs).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar perícias"})
-		return
+	if len(todasPericias) > 0 {
+		if err := h.db.Find(&pericias, todasPericias).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar perícias"})
+			return
+		}
+
+		// Verificar se todas as perícias foram encontradas
+		if len(pericias) != len(todasPericias) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Uma ou mais perícias não foram encontradas"})
+			return
+		}
 	}
 
-	// Verificar se todas as perícias foram encontradas
-	if len(pericias) != len(request.PericiasIDs) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Uma ou mais perícias não foram encontradas"})
-		return
-	}
-
-	// Substituir perícias do personagem manualmente com fonte
-	// Primeiro, remover perícias existentes escolhidas pelo usuário (fonte = 'classe')
-	if err := h.db.Where("personagem_id = ? AND fonte = ?", id, "classe").Delete(&models.PersonagemPericia{}).Error; err != nil {
+	// Limpar perícias escolhidas existentes (tanto de classe quanto de raça)
+	if err := h.db.Where("personagem_id = ? AND fonte IN (?)", id, []string{"classe", "raca"}).Delete(&models.PersonagemPericia{}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao limpar perícias existentes"})
 		return
 	}
 
-	// Inserir novas perícias com fonte = 'classe'
-	for _, periciaID := range request.PericiasIDs {
+	// Inserir perícias de classe
+	for _, periciaID := range periciasClasse {
 		personagemPericia := models.PersonagemPericia{
 			PersonagemID: uint(id),
 			PericiaID:    periciaID,
 			Fonte:        "classe",
 		}
 		if err := h.db.Create(&personagemPericia).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar perícias"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar perícias de classe"})
+			return
+		}
+	}
+
+	// Inserir perícias de raça
+	for _, periciaID := range periciasRaca {
+		personagemPericia := models.PersonagemPericia{
+			PersonagemID: uint(id),
+			PericiaID:    periciaID,
+			Fonte:        "raca",
+		}
+		if err := h.db.Create(&personagemPericia).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar perícias de raça"})
 			return
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":              "Perícias atualizadas com sucesso",
-		"pericias_escolhidas":  len(pericias),
+		"pericias_classe":      len(periciasClasse),
+		"pericias_raca":        len(periciasRaca),
 		"pericias_automaticas": len(periciasAutomaticas),
+	})
+}
+
+// GET /personagens/:id/pericias - Busca perícias selecionadas do personagem
+func (h *PericiasHandler) GetPericiasPersonagem(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	// Buscar personagem com suas perícias
+	var personagem models.Personagem
+	if err := h.db.Preload("Pericias").First(&personagem, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Personagem não encontrado"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar personagem"})
+		return
+	}
+
+	// Extrair IDs das perícias
+	var periciasIds []uint
+	for _, pericia := range personagem.Pericias {
+		periciasIds = append(periciasIds, pericia.ID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"personagem_id": id,
+		"pericias_ids":  periciasIds,
 	})
 }

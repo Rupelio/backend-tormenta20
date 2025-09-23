@@ -112,6 +112,7 @@ func setupRouter() *gin.Engine {
 		api.GET("/classes/:id/pericias", periciasHandler.GetPericiasClasse)
 		api.GET("/racas/:id/pericias", periciasHandler.GetPericiasRaca)
 		api.GET("/origens/:id/pericias", periciasHandler.GetPericiasOrigem)
+		api.GET("/personagens/:id/pericias", periciasHandler.GetPericiasPersonagem)
 		api.POST("/personagens/:id/pericias", periciasHandler.UpdatePericiasPersonagem)
 	}
 

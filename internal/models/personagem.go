@@ -12,13 +12,13 @@ type Personagem struct {
 	Nome  string `json:"nome" validate:"required,min=2"`
 	Nivel int    `json:"nivel" validate:"min=1,max=20"`
 
-	// Atributos base (0 a 4)
-	For int `json:"for" gorm:"column:for" validate:"min=0,max=4"`
-	Des int `json:"des" gorm:"column:des" validate:"min=0,max=4"`
-	Con int `json:"con" gorm:"column:con" validate:"min=0,max=4"`
-	Int int `json:"int" gorm:"column:int" validate:"min=0,max=4"`
-	Sab int `json:"sab" gorm:"column:sab" validate:"min=0,max=4"`
-	Car int `json:"car" gorm:"column:car" validate:"min=0,max=4"`
+	// Atributos base (point-buy do Tormenta 20: -1 a 4, mais bonus raciais)
+	For int `json:"for" gorm:"column:for" validate:"min=-1,max=10"`
+	Des int `json:"des" gorm:"column:des" validate:"min=-1,max=10"`
+	Con int `json:"con" gorm:"column:con" validate:"min=-1,max=10"`
+	Int int `json:"int" gorm:"column:int" validate:"min=-1,max=10"`
+	Sab int `json:"sab" gorm:"column:sab" validate:"min=-1,max=10"`
+	Car int `json:"car" gorm:"column:car" validate:"min=-1,max=10"`
 
 	// Relações
 	RacaID      uint       `json:"raca_id"`
@@ -36,10 +36,11 @@ type Personagem struct {
 	// Escolhas específicas de raça (JSON)
 	EscolhasRaca string `json:"escolhas_raca" gorm:"column:escolhas_raca;type:jsonb;default:'{}'"`
 
-	// Identificação do usuário/sessão
-	UserSessionID *string `json:"user_session_id" gorm:"column:user_session_id;type:varchar(36)"`
-	UserIP        *string `json:"user_ip" gorm:"column:user_ip;type:inet"`
-	CreatedByType string  `json:"created_by_type" gorm:"column:created_by_type;default:'session'"`
+	// Atributos livres escolhidos (JSON) - para raças com atributos livres
+	AtributosLivres string  `json:"atributos_livres" gorm:"column:atributos_livres;type:jsonb;default:'[]'"` // Identificação do usuário/sessão
+	UserSessionID   *string `json:"user_session_id" gorm:"column:user_session_id;type:varchar(36)"`
+	UserIP          *string `json:"user_ip" gorm:"column:user_ip;type:inet"`
+	CreatedByType   string  `json:"created_by_type" gorm:"column:created_by_type;default:'session'"`
 
 	// Stats calculados (não salvos no DB)
 	PVTotal int `json:"pv_total" gorm:"-"`
@@ -194,4 +195,26 @@ type PersonagemPericia struct {
 
 func (PersonagemPericia) TableName() string {
 	return "personagem_pericias"
+}
+
+// PersonagemPoderDivino representa a relação entre personagem e poderes divinos
+type PersonagemPoderDivino struct {
+	PersonagemID uint `json:"personagem_id" gorm:"primaryKey"`
+	PoderID      uint `json:"poder_id" gorm:"primaryKey"`
+	Nivel        int  `json:"nivel" gorm:"default:1"`
+}
+
+func (PersonagemPoderDivino) TableName() string {
+	return "personagem_poderes_divinos"
+}
+
+// PersonagemPoderClasse representa a relação entre personagem e poderes de classe
+type PersonagemPoderClasse struct {
+	PersonagemID uint `json:"personagem_id" gorm:"primaryKey"`
+	PoderID      uint `json:"poder_id" gorm:"primaryKey"`
+	Nivel        int  `json:"nivel" gorm:"default:1"`
+}
+
+func (PersonagemPoderClasse) TableName() string {
+	return "personagem_poderes_classe"
 }
