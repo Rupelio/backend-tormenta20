@@ -661,20 +661,8 @@ func (h *PersonagemHandler) SavePoderesClasse(c *gin.Context) {
 	}
 
 	// Verificar se o personagem existe e pertence ao usuário
-	sessionID, userIP := middleware.GetUserIdentification(c)
-
-	var personagem models.Personagem
-	query := database.DB
-	if sessionID != "" {
-		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
-	} else if userIP != "" {
-		query = query.Where("id = ? AND user_ip = ?", id, userIP)
-	} else {
-		h.Response.NotFound(c, "Personagem não encontrado")
-		return
-	}
-
-	if err := query.First(&personagem).Error; err != nil {
+	personagem, err := h.findPersonagemByUser(c, int(id))
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			h.Response.NotFound(c, "Personagem não encontrado")
 		} else {
@@ -852,20 +840,8 @@ func (h *PersonagemHandler) GetPoderesDivinos(c *gin.Context) {
 	}
 
 	// Verificar se o personagem existe e pertence ao usuário
-	sessionID, userIP := middleware.GetUserIdentification(c)
-
-	var personagem models.Personagem
-	query := database.DB
-	if sessionID != "" {
-		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
-	} else if userIP != "" {
-		query = query.Where("id = ? AND user_ip = ?", id, userIP)
-	} else {
-		h.Response.NotFound(c, "Personagem não encontrado")
-		return
-	}
-
-	if err := query.First(&personagem).Error; err != nil {
+	_, err = h.findPersonagemByUser(c, int(id))
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			h.Response.NotFound(c, "Personagem não encontrado")
 		} else {
@@ -902,20 +878,8 @@ func (h *PersonagemHandler) GetPoderesClasse(c *gin.Context) {
 	}
 
 	// Verificar se o personagem existe e pertence ao usuário
-	sessionID, userIP := middleware.GetUserIdentification(c)
-
-	var personagem models.Personagem
-	query := database.DB
-	if sessionID != "" {
-		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
-	} else if userIP != "" {
-		query = query.Where("id = ? AND user_ip = ?", id, userIP)
-	} else {
-		h.Response.NotFound(c, "Personagem não encontrado")
-		return
-	}
-
-	if err := query.First(&personagem).Error; err != nil {
+	_, err = h.findPersonagemByUser(c, int(id))
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			h.Response.NotFound(c, "Personagem não encontrado")
 		} else {
@@ -1000,20 +964,8 @@ func (h *PersonagemHandler) GetEscolhasRaca(c *gin.Context) {
 	}
 
 	// Verificar se o personagem existe e pertence ao usuário
-	sessionID, userIP := middleware.GetUserIdentification(c)
-
-	var personagem models.Personagem
-	query := database.DB
-	if sessionID != "" {
-		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
-	} else if userIP != "" {
-		query = query.Where("id = ? AND user_ip = ?", id, userIP)
-	} else {
-		h.Response.NotFound(c, "Personagem não encontrado")
-		return
-	}
-
-	if err := query.First(&personagem).Error; err != nil {
+	personagem, err := h.findPersonagemByUser(c, int(id))
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			h.Response.NotFound(c, "Personagem não encontrado")
 		} else {
