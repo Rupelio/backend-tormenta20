@@ -49,6 +49,28 @@ func NewPersonagemHandler() *PersonagemHandler {
 	}
 }
 
+// findPersonagemByUser busca um personagem que pertence ao usuário (por sessão OU IP)
+func (h *PersonagemHandler) findPersonagemByUser(c *gin.Context, personagemID int) (*models.Personagem, error) {
+	sessionID, userIP := middleware.GetUserIdentification(c)
+
+	var personagem models.Personagem
+	query := database.DB
+
+	if sessionID != "" && userIP != "" {
+		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
+		query = query.Where("id = ? AND (user_session_id = ? OR user_ip = ?)", personagemID, sessionID, userIP)
+	} else if sessionID != "" {
+		query = query.Where("id = ? AND user_session_id = ?", personagemID, sessionID)
+	} else if userIP != "" {
+		query = query.Where("id = ? AND user_ip = ?", personagemID, userIP)
+	} else {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	err := query.First(&personagem).Error
+	return &personagem, err
+}
+
 func (h *PersonagemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	personagens := rg.Group("/personagens")
 	{
@@ -82,7 +104,10 @@ func (h *PersonagemHandler) GetAllPersonagens(c *gin.Context) {
 	// Constrói query para filtrar personagens do usuário
 	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade")
 
-	if sessionID != "" {
+	if sessionID != "" && userIP != "" {
+		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
+		query = query.Where("user_session_id = ? OR user_ip = ?", sessionID, userIP)
+	} else if sessionID != "" {
 		// Prioriza session ID se disponível
 		query = query.Where("user_session_id = ?", sessionID)
 	} else if userIP != "" {
@@ -121,7 +146,10 @@ func (h *PersonagemHandler) GetPersonagem(c *gin.Context) {
 	// Constrói query para buscar personagem do usuário
 	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade")
 
-	if sessionID != "" {
+	if sessionID != "" && userIP != "" {
+		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
+		query = query.Where("id = ? AND (user_session_id = ? OR user_ip = ?)", id, sessionID, userIP)
+	} else if sessionID != "" {
 		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
 	} else if userIP != "" {
 		query = query.Where("id = ? AND user_ip = ?", id, userIP)
@@ -294,7 +322,10 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 
 	// Primeiro, verifica se o personagem existe e pertence ao usuário
 	query := database.DB
-	if sessionID != "" {
+	if sessionID != "" && userIP != "" {
+		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
+		query = query.Where("id = ? AND (user_session_id = ? OR user_ip = ?)", id, sessionID, userIP)
+	} else if sessionID != "" {
 		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
 	} else if userIP != "" {
 		query = query.Where("id = ? AND user_ip = ?", id, userIP)
@@ -416,7 +447,10 @@ func (h *PersonagemHandler) DeletePersonagem(c *gin.Context) {
 
 	// Verifica se o personagem existe e pertence ao usuário
 	query := database.DB
-	if sessionID != "" {
+	if sessionID != "" && userIP != "" {
+		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
+		query = query.Where("id = ? AND (user_session_id = ? OR user_ip = ?)", id, sessionID, userIP)
+	} else if sessionID != "" {
 		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
 	} else if userIP != "" {
 		query = query.Where("id = ? AND user_ip = ?", id, userIP)

@@ -28,23 +28,16 @@ func UserSessionMiddleware() gin.HandlerFunc {
 				c.Request.TLS != nil ||
 				strings.HasPrefix(c.Request.Host, "backend-tormenta20.fly.dev")
 
-			// 4. Determina o domínio para o cookie
+			// 4. Para cross-origin entre domínios diferentes, não definir domínio específico
 			domain := ""
-			if strings.Contains(c.Request.Host, "tormenta20") {
-				if strings.Contains(c.Request.Host, "fly.dev") {
-					domain = ".fly.dev"
-				} else if strings.Contains(c.Request.Host, "vercel.app") {
-					domain = ".vercel.app"
-				}
-			}
 
-			// Define cookie com sessão (httpOnly para segurança)
+			// Define cookie com sessão
 			c.SetCookie(
 				UserSessionCookie,
 				sessionID,
 				60*60*24*30, // 30 dias
 				"/",
-				domain,
+				domain,   // vazio para permitir cross-origin
 				isSecure, // secure em HTTPS
 				false,    // httpOnly - false para permitir acesso via JS se necessário
 			)
