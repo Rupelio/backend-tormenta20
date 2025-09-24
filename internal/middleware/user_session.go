@@ -3,6 +3,7 @@ package middleware
 import (
 	"net"
 	"strings"
+	"tormenta20-builder/internal/database"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ func UserSessionMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. Tenta obter sessão existente do cookie
 		sessionID, err := c.Cookie(UserSessionCookie)
+		userIP := getUserIP(c)
 		if err != nil || sessionID == "" {
 			// 2. Se não existe, cria nova sessão
 			sessionID = uuid.New().String()
@@ -41,10 +43,18 @@ func UserSessionMiddleware() gin.HandlerFunc {
 				isSecure, // secure em HTTPS
 				false,    // httpOnly - false para permitir acesso via JS se necessário
 			)
-		}
 
-		// 3. Obtém IP do usuário (considerando proxies)
-		userIP := getUserIP(c)
+			if userIP != "unknown" {
+				go func(sid, ip string) {
+					// Atualiza o user_session_id de todos os personagens que correspondem ao IP
+					// mas que têm um ID de sessão diferente ou nulo.
+					database.DB.Exec(
+						"UPDATE personagens SET user_session_id = ? WHERE user_ip = ? AND (user_session_id IS NULL OR user_session_id != ?)",
+						sid, ip, sid,
+					)
+				}(sessionID, userIP) // Passa sessionID e userIP para a goroutine
+			}
+		}
 
 		// 4. Adiciona informações ao contexto
 		c.Set("user_session_id", sessionID)
