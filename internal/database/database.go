@@ -54,6 +54,8 @@ func AutoMigrate() error {
 		&models.HabilidadeRaca{},
 		&models.HabilidadeClasse{},
 		&models.Personagem{},
+		&models.PersonagemBeneficioPericia{},
+		&models.PersonagemBeneficioPoder{},
 	)
 }
 

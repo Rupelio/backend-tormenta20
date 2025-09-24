@@ -40,6 +40,9 @@ type PersonagemRequest struct {
 	PericiasSelecionadas []uint   `json:"pericias_selecionadas"` // IDs das perícias selecionadas
 	PoderesClasse        []uint   `json:"poderes_classe"`        // IDs dos poderes de classe
 	PoderesDivinos       []uint   `json:"poderes_divinos"`       // IDs dos poderes divinos
+
+	BeneficiosOrigemPericias []uint `json:"beneficios_origem_pericias"`
+	BeneficiosOrigemPoderes  []uint `json:"beneficios_origem_poderes"`
 }
 
 type PersonagemHandler struct {
@@ -95,6 +98,8 @@ func (h *PersonagemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 		personagens.GET("/:id/escolhas-raca", h.GetEscolhasRaca)
 		// Endpoint de debug para ver TODOS os personagens (sem filtro de usuário)
 		// personagens.GET("/debug/all", h.GetAllPersonagensDebug)
+		personagens.GET("/:id/beneficios-origem", h.GetBeneficiosOrigem)
+
 	}
 }
 
@@ -179,24 +184,13 @@ func (h *PersonagemHandler) GetPersonagem(c *gin.Context) {
 
 func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 	var req PersonagemRequest
-
-	// Log do payload recebido para debug
 	body, _ := c.GetRawData()
-	fmt.Printf("DEBUG - CreatePersonagem - Raw body: %s\n", string(body))
-
-	// Recriar o context para poder fazer bind novamente
-	c.Request.Body = io.NopCloser(strings.NewReader(string(body)))
-
-	// Bind dos dados do personagem
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fmt.Printf("DEBUG - CreatePersonagem - Erro no bind JSON: %v\n", err)
 		h.Response.BadRequest(c, err.Error())
 		return
 	}
 
-	fmt.Printf("DEBUG - CreatePersonagem - Dados parseados: %+v\n", req)
-
-	// Criar personagem a partir dos dados da request
 	personagem := models.Personagem{
 		Nome:        req.Nome,
 		Nivel:       req.Nivel,
@@ -212,20 +206,12 @@ func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 		DivindadeID: req.DivindadeID,
 	}
 
-	// Garantir que EscolhasRaca seja um JSON válido
 	if req.EscolhasRaca == "" {
 		personagem.EscolhasRaca = "{}"
 	} else {
 		personagem.EscolhasRaca = req.EscolhasRaca
 	}
 
-	// LIMPAR ID para evitar conflito de chave primária na criação
-	personagem.ID = 0
-
-	// LIMPAR relações many2many para evitar problemas no Create
-	personagem.Pericias = nil
-
-	// Processar atributos livres
 	if len(req.AtributosLivres) > 0 {
 		atributosLivresJSON, err := json.Marshal(req.AtributosLivres)
 		if err != nil {
@@ -237,76 +223,59 @@ func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 		personagem.AtributosLivres = "[]"
 	}
 
-	// Validar estrutura
-	fmt.Printf("DEBUG - CreatePersonagem - Antes da validação: %+v\n", personagem)
-	if err := validate.Struct(personagem); err != nil {
-		fmt.Printf("DEBUG - CreatePersonagem - Erro na validação: %v\n", err)
-		h.Response.BadRequest(c, err.Error())
-		return
-	}
-	fmt.Printf("DEBUG - CreatePersonagem - Validação passou\n")
-
-	// Obtém identificação do usuário e adiciona ao personagem
 	sessionID, userIP := middleware.GetUserIdentification(c)
-	fmt.Printf("DEBUG - CreatePersonagem - SessionID: %s, UserIP: %s\n", sessionID, userIP)
-
 	if sessionID != "" {
 		personagem.UserSessionID = &sessionID
-		personagem.CreatedByType = "session"
 	}
-
 	if userIP != "" {
 		personagem.UserIP = &userIP
-		// Se tem session E IP, define como hybrid
-		if sessionID != "" {
-			personagem.CreatedByType = "hybrid"
-		} else {
-			personagem.CreatedByType = "ip"
-		}
 	}
 
-	// Garante que escolhas_raca seja um JSON válido
-	if personagem.EscolhasRaca == "" {
-		personagem.EscolhasRaca = "{}"
-	}
-
-	fmt.Printf("DEBUG - CreatePersonagem - Antes de criar no banco: %+v\n", personagem)
-
-	// Criar no banco
 	if err := database.DB.Create(&personagem).Error; err != nil {
-		fmt.Printf("DEBUG - CreatePersonagem - Erro ao criar no banco: %v\n", err)
 		h.Response.InternalError(c, "Erro ao criar personagem")
 		return
 	}
 
-	fmt.Printf("DEBUG - CreatePersonagem - Personagem criado com sucesso, ID: %d\n", personagem.ID)
-
 	// Processar perícias selecionadas
 	if len(req.PericiasSelecionadas) > 0 {
-		// Buscar perícias válidas
 		var pericias []models.Pericia
 		if err := database.DB.Where("id IN ?", req.PericiasSelecionadas).Find(&pericias).Error; err == nil {
-			// Criar registros de PersonagemPericia com fonte 'classe' (padrão para perícias selecionadas na criação)
 			for _, pericia := range pericias {
 				personagemPericia := models.PersonagemPericia{
 					PersonagemID: personagem.ID,
 					PericiaID:    pericia.ID,
 					Fonte:        "classe",
 				}
-				if err := database.DB.Create(&personagemPericia).Error; err != nil {
-					fmt.Printf("Erro ao associar perícia %d ao personagem: %v\n", pericia.ID, err)
-				}
+				database.DB.Create(&personagemPericia)
 			}
 		}
 	}
 
-	// Recarregar com relações
+	// ✅ LÓGICA ADICIONADA PARA SALVAR BENEFÍCIOS NA CRIAÇÃO
+	if len(req.BeneficiosOrigemPericias) > 0 {
+		for _, periciaID := range req.BeneficiosOrigemPericias {
+			beneficioPericia := models.PersonagemBeneficioPericia{
+				PersonagemID: personagem.ID,
+				PericiaID:    periciaID,
+			}
+			database.DB.Create(&beneficioPericia)
+		}
+	}
+	if len(req.BeneficiosOrigemPoderes) > 0 {
+		for _, poderID := range req.BeneficiosOrigemPoderes {
+			beneficioPoder := models.PersonagemBeneficioPoder{
+				PersonagemID: personagem.ID,
+				PoderID:      poderID,
+			}
+			database.DB.Create(&beneficioPoder)
+		}
+	}
+
 	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade").First(&personagem, personagem.ID).Error; err != nil {
 		h.Response.InternalError(c, "Erro ao carregar personagem criado")
 		return
 	}
 
-	// Carregar perícias manualmente e calcular stats
 	h.loadPersonagemPericias(&personagem)
 	h.calculatePersonagemStats(&personagem)
 
@@ -320,24 +289,8 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 		return
 	}
 
-	var personagem models.Personagem
-	sessionID, userIP := middleware.GetUserIdentification(c)
-
-	// Primeiro, verifica se o personagem existe e pertence ao usuário
-	query := database.DB
-	if sessionID != "" && userIP != "" {
-		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
-		query = query.Where("id = ? AND (user_session_id = ? OR user_ip = ?)", id, sessionID, userIP)
-	} else if sessionID != "" {
-		query = query.Where("id = ? AND user_session_id = ?", id, sessionID)
-	} else if userIP != "" {
-		query = query.Where("id = ? AND user_ip = ?", id, userIP)
-	} else {
-		h.Response.NotFound(c, "Personagem não encontrado")
-		return
-	}
-
-	if err := query.First(&personagem).Error; err != nil {
+	personagem, err := h.findPersonagemByUser(c, int(id))
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			h.Response.NotFound(c, "Personagem não encontrado")
 		} else {
@@ -346,94 +299,80 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 		return
 	}
 
-	// Bind dos novos dados (preservando a identificação do usuário)
-	originalSessionID := personagem.UserSessionID
-	originalUserIP := personagem.UserIP
-	originalCreatedByType := personagem.CreatedByType
-
 	var req PersonagemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.Response.BadRequest(c, err.Error())
 		return
 	}
 
-	// Criar personagem atualizado a partir dos dados da request
-	updatedPersonagem := models.Personagem{
-		ID:          personagem.ID,
-		Nome:        req.Nome,
-		Nivel:       req.Nivel,
-		For:         req.For,
-		Des:         req.Des,
-		Con:         req.Con,
-		Int:         req.Int,
-		Sab:         req.Sab,
-		Car:         req.Car,
-		RacaID:      req.RacaID,
-		ClasseID:    req.ClasseID,
-		OrigemID:    req.OrigemID,
-		DivindadeID: req.DivindadeID,
-	}
+	personagem.Nome = req.Nome
+	personagem.Nivel = req.Nivel
+	personagem.For = req.For
+	personagem.Des = req.Des
+	personagem.Con = req.Con
+	personagem.Int = req.Int
+	personagem.Sab = req.Sab
+	personagem.Car = req.Car
+	personagem.RacaID = req.RacaID
+	personagem.ClasseID = req.ClasseID
+	personagem.OrigemID = req.OrigemID
+	personagem.DivindadeID = req.DivindadeID
 
-	// Garantir que EscolhasRaca seja um JSON válido
 	if req.EscolhasRaca == "" {
-		updatedPersonagem.EscolhasRaca = "{}"
+		personagem.EscolhasRaca = "{}"
 	} else {
-		updatedPersonagem.EscolhasRaca = req.EscolhasRaca
+		personagem.EscolhasRaca = req.EscolhasRaca
 	}
 
-	// LIMPAR relações many2many para evitar problemas no Save
-	updatedPersonagem.Pericias = nil
-
-	// Processar atributos livres
 	if len(req.AtributosLivres) > 0 {
 		atributosLivresJSON, err := json.Marshal(req.AtributosLivres)
 		if err != nil {
 			h.Response.BadRequest(c, "Erro ao processar atributos livres")
 			return
 		}
-		updatedPersonagem.AtributosLivres = string(atributosLivresJSON)
+		personagem.AtributosLivres = string(atributosLivresJSON)
 	} else {
-		updatedPersonagem.AtributosLivres = "[]"
+		personagem.AtributosLivres = "[]"
 	}
 
-	// Restaura identificação original (não deve ser alterada)
-	updatedPersonagem.UserSessionID = originalSessionID
-	updatedPersonagem.UserIP = originalUserIP
-	updatedPersonagem.CreatedByType = originalCreatedByType
-
-	// Usar o personagem atualizado
-	personagem = updatedPersonagem
-
-	// Validar estrutura
-	if err := validate.Struct(personagem); err != nil {
-		h.Response.BadRequest(c, fmt.Sprintf("Erro de validação: %v", err))
-		return
-	}
-
-	// Salvar alterações
 	if err := database.DB.Save(&personagem).Error; err != nil {
 		h.Response.InternalError(c, "Erro ao atualizar personagem")
 		return
 	}
 
-	// Processar perícias selecionadas
+	// Processar perícias
+	database.DB.Model(&personagem).Association("Pericias").Clear()
 	if len(req.PericiasSelecionadas) > 0 {
-		// Buscar perícias válidas
 		var pericias []models.Pericia
 		if err := database.DB.Where("id IN ?", req.PericiasSelecionadas).Find(&pericias).Error; err == nil {
-			// Associar perícias ao personagem
-			if err := database.DB.Model(&personagem).Association("Pericias").Replace(&pericias); err != nil {
-				fmt.Printf("Erro ao associar perícias ao personagem: %v\n", err)
-			}
+			database.DB.Model(&personagem).Association("Pericias").Replace(&pericias)
 		}
-	} else {
-		// Se não há perícias selecionadas, limpar associações
-		database.DB.Model(&personagem).Association("Pericias").Clear()
 	}
 
-	// Carregar perícias manualmente e calcular stats
-	h.loadPersonagemPericias(&personagem)
-	h.calculatePersonagemStats(&personagem)
+	// ✅ LÓGICA ADICIONADA PARA SALVAR BENEFÍCIOS NA ATUALIZAÇÃO
+	database.DB.Where("personagem_id = ?", id).Delete(&models.PersonagemBeneficioPericia{})
+	if len(req.BeneficiosOrigemPericias) > 0 {
+		for _, periciaID := range req.BeneficiosOrigemPericias {
+			beneficioPericia := models.PersonagemBeneficioPericia{
+				PersonagemID: uint(id),
+				PericiaID:    periciaID,
+			}
+			database.DB.Create(&beneficioPericia)
+		}
+	}
+	database.DB.Where("personagem_id = ?", id).Delete(&models.PersonagemBeneficioPoder{})
+	if len(req.BeneficiosOrigemPoderes) > 0 {
+		for _, poderID := range req.BeneficiosOrigemPoderes {
+			beneficioPoder := models.PersonagemBeneficioPoder{
+				PersonagemID: uint(id),
+				PoderID:      poderID,
+			}
+			database.DB.Create(&beneficioPoder)
+		}
+	}
+
+	h.loadPersonagemPericias(personagem)
+	h.calculatePersonagemStats(personagem)
 
 	h.Response.Success(c, personagem)
 }
@@ -1248,4 +1187,42 @@ func (h *PersonagemHandler) generateSimplePDF(personagem *models.Personagem) ([]
 	}
 
 	return buf.Bytes(), nil
+}
+
+func (h *PersonagemHandler) GetBeneficiosOrigem(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		h.Response.BadRequest(c, "ID inválido")
+		return
+	}
+
+	_, err = h.findPersonagemByUser(c, int(id))
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			h.Response.NotFound(c, "Personagem não encontrado")
+		} else {
+			h.Response.InternalError(c, "Erro ao buscar personagem")
+		}
+		return
+	}
+
+	var periciasBeneficio []models.PersonagemBeneficioPericia
+	database.DB.Where("personagem_id = ?", id).Find(&periciasBeneficio)
+	var periciasIDs []uint
+	for _, pb := range periciasBeneficio {
+		periciasIDs = append(periciasIDs, pb.PericiaID)
+	}
+
+	var poderesBeneficio []models.PersonagemBeneficioPoder
+	database.DB.Where("personagem_id = ?", id).Find(&poderesBeneficio)
+	var poderesIDs []uint
+	for _, pb := range poderesBeneficio {
+		poderesIDs = append(poderesIDs, pb.PoderID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"personagem_id": id,
+		"pericias":      periciasIDs,
+		"poderes":       poderesIDs,
+	})
 }
