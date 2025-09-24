@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,8 +11,10 @@ import (
 	"tormenta20-builder/internal/database"
 	"tormenta20-builder/internal/middleware"
 	"tormenta20-builder/internal/models"
+	"tormenta20-builder/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jung-kurt/gofpdf"
 	"gorm.io/gorm"
 )
 
@@ -563,20 +566,93 @@ func (h *PersonagemHandler) CalculateStats(c *gin.Context) {
 
 // ExportToPDF exporta a ficha do personagem em formato PDF
 func (h *PersonagemHandler) ExportToPDF(c *gin.Context) {
-	id := c.Param("id")
-
-	var personagem models.Personagem
-	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").First(&personagem, id).Error; err != nil {
-		h.Response.NotFound(c, "Personagem não encontrado")
+	id, err := parseID(c)
+	if err != nil {
+		h.Response.BadRequest(c, "ID inválido")
 		return
 	}
 
-	// Resposta temporária simplificada para testar se a rota funciona
-	c.JSON(http.StatusOK, gin.H{
-		"message":    "PDF export funcionando",
-		"personagem": personagem.Nome,
-		"id":         id,
-	})
+	// Buscar personagem com validação de usuário
+	personagem, err := h.findPersonagemByUser(c, int(id))
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			h.Response.NotFound(c, "Personagem não encontrado")
+		} else {
+			h.Response.InternalError(c, "Erro ao buscar personagem")
+		}
+		return
+	}
+
+	// Carregar dados completos do personagem
+	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade").First(personagem, personagem.ID).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao carregar dados do personagem")
+		return
+	}
+
+	// Carregar perícias e calcular stats
+	h.loadPersonagemPericias(personagem)
+	h.calculatePersonagemStats(personagem)
+
+	// Garantir que todos os campos obrigatórios estejam preenchidos
+	if personagem.Nome == "" {
+		personagem.Nome = "Personagem Sem Nome"
+	}
+	if personagem.Raca.Nome == "" {
+		personagem.Raca.Nome = "-"
+	}
+	if personagem.Classe.Nome == "" {
+		personagem.Classe.Nome = "-"
+	}
+	if personagem.Origem.Nome == "" {
+		personagem.Origem.Nome = "-"
+	}
+	if personagem.Divindade == nil {
+		personagem.Divindade = &models.Divindade{Nome: "-"}
+	}
+
+	// Logar personagem antes de gerar PDF
+	fmt.Printf("[DEBUG] ExportToPDF - Personagem: %+v\n", personagem)
+
+	// Obter parâmetros da query
+	layout := c.DefaultQuery("layout", "single")
+	editable := c.DefaultQuery("editable", "false") == "true"
+	showCalculations := c.DefaultQuery("show_calculations", "true") == "true"
+	extraSections := strings.Split(c.DefaultQuery("extra_sections", ""), ",")
+
+	// Configurar opções do PDF
+	options := services.PDFExportOptions{
+		Layout:           layout,
+		IncludeImage:     c.DefaultQuery("include_image", "false") == "true",
+		ShowCalculations: showCalculations,
+		ExtraSections:    extraSections,
+		CustomColors:     make(map[string]string),
+	}
+
+	var pdfBytes []byte
+	if editable {
+		// Usar serviço de PDF editável
+		pdfService := services.NewFormFillablePDFService()
+		pdfBytes, err = pdfService.GenerateEditableCharacterSheet(personagem, options)
+	} else {
+		// Usar serviço de PDF padrão
+		pdfService := services.NewPDFService()
+		pdfBytes, err = pdfService.GenerateCharacterSheet(personagem, options)
+	}
+
+	if err != nil {
+		fmt.Printf("[ERROR] Erro ao gerar PDF: %v\n", err)
+		h.Response.InternalError(c, "Erro ao gerar PDF: "+err.Error())
+		return
+	}
+
+	// Configurar headers para download
+	filename := fmt.Sprintf("%s_ficha_tormenta20.pdf", personagem.Nome)
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Content-Length", fmt.Sprintf("%d", len(pdfBytes)))
+
+	// Enviar PDF
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 // TestRoute rota de teste para verificar se funciona
@@ -989,4 +1065,187 @@ func (h *PersonagemHandler) GetEscolhasRaca(c *gin.Context) {
 		"personagem_id": id,
 		"escolhas":      escolhas,
 	})
+}
+
+// generateSimplePDF cria um PDF simples usando gofpdf
+func (h *PersonagemHandler) generateSimplePDF(personagem *models.Personagem) ([]byte, error) {
+	// Criar novo PDF
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+
+	// Configurar fonte
+	pdf.SetFont("Arial", "B", 16)
+
+	// Título
+	pdf.Cell(190, 10, "FICHA DE PERSONAGEM - TORMENTA 20")
+	pdf.Ln(15)
+
+	// Informações básicas
+	pdf.SetFont("Arial", "B", 12)
+	pdf.Cell(190, 8, "INFORMACOES BASICAS")
+	pdf.Ln(10)
+
+	pdf.SetFont("Arial", "", 10)
+
+	// Nome
+	pdf.Cell(40, 6, "Nome:")
+	pdf.SetFont("Arial", "B", 10)
+	pdf.Cell(150, 6, personagem.Nome)
+	pdf.Ln(8)
+
+	// Nível
+	pdf.SetFont("Arial", "", 10)
+	pdf.Cell(40, 6, "Nivel:")
+	pdf.SetFont("Arial", "B", 10)
+	pdf.Cell(150, 6, fmt.Sprintf("%d", personagem.Nivel))
+	pdf.Ln(8)
+
+	// Raça
+	pdf.SetFont("Arial", "", 10)
+	pdf.Cell(40, 6, "Raca:")
+	pdf.SetFont("Arial", "B", 10)
+	racaNome := ""
+	if personagem.Raca.Nome != "" {
+		racaNome = personagem.Raca.Nome
+	}
+	pdf.Cell(150, 6, racaNome)
+	pdf.Ln(8)
+
+	// Classe
+	pdf.SetFont("Arial", "", 10)
+	pdf.Cell(40, 6, "Classe:")
+	pdf.SetFont("Arial", "B", 10)
+	classeNome := ""
+	if personagem.Classe.Nome != "" {
+		classeNome = personagem.Classe.Nome
+	}
+	pdf.Cell(150, 6, classeNome)
+	pdf.Ln(8)
+
+	// Origem
+	pdf.SetFont("Arial", "", 10)
+	pdf.Cell(40, 6, "Origem:")
+	pdf.SetFont("Arial", "B", 10)
+	origemNome := ""
+	if personagem.Origem.Nome != "" {
+		origemNome = personagem.Origem.Nome
+	}
+	pdf.Cell(150, 6, origemNome)
+	pdf.Ln(8)
+
+	// Divindade (se houver)
+	if personagem.Divindade != nil {
+		pdf.SetFont("Arial", "", 10)
+		pdf.Cell(40, 6, "Divindade:")
+		pdf.SetFont("Arial", "B", 10)
+		pdf.Cell(150, 6, personagem.Divindade.Nome)
+		pdf.Ln(8)
+	}
+
+	pdf.Ln(5)
+
+	// Atributos
+	pdf.SetFont("Arial", "B", 12)
+	pdf.Cell(190, 8, "ATRIBUTOS")
+	pdf.Ln(10)
+
+	pdf.SetFont("Arial", "", 10)
+
+	atributos := []struct {
+		Nome  string
+		Valor int
+	}{
+		{"Forca", personagem.For},
+		{"Destreza", personagem.Des},
+		{"Constituicao", personagem.Con},
+		{"Inteligencia", personagem.Int},
+		{"Sabedoria", personagem.Sab},
+		{"Carisma", personagem.Car},
+	}
+
+	// Criar tabela de atributos (2 colunas)
+	for i := 0; i < len(atributos); i += 2 {
+		// Primeira coluna
+		pdf.Cell(40, 6, fmt.Sprintf("%s:", atributos[i].Nome))
+		pdf.SetFont("Arial", "B", 10)
+		pdf.Cell(20, 6, fmt.Sprintf("%d", atributos[i].Valor))
+		pdf.SetFont("Arial", "", 10)
+
+		// Segunda coluna (se existir)
+		if i+1 < len(atributos) {
+			pdf.Cell(40, 6, fmt.Sprintf("%s:", atributos[i+1].Nome))
+			pdf.SetFont("Arial", "B", 10)
+			pdf.Cell(20, 6, fmt.Sprintf("%d", atributos[i+1].Valor))
+			pdf.SetFont("Arial", "", 10)
+		}
+		pdf.Ln(8)
+	}
+
+	pdf.Ln(5)
+
+	// Estatísticas
+	pdf.SetFont("Arial", "B", 12)
+	pdf.Cell(190, 8, "ESTATISTICAS")
+	pdf.Ln(10)
+
+	pdf.SetFont("Arial", "", 10)
+
+	// PV
+	pdf.Cell(60, 6, "Pontos de Vida (PV):")
+	pdf.SetFont("Arial", "B", 10)
+	pdf.Cell(30, 6, fmt.Sprintf("%d", personagem.PVTotal))
+	pdf.SetFont("Arial", "", 10)
+	pdf.Ln(8)
+
+	// PM
+	pdf.Cell(60, 6, "Pontos de Mana (PM):")
+	pdf.SetFont("Arial", "B", 10)
+	pdf.Cell(30, 6, fmt.Sprintf("%d", personagem.PMTotal))
+	pdf.SetFont("Arial", "", 10)
+	pdf.Ln(8)
+
+	// Defesa
+	pdf.Cell(60, 6, "Defesa:")
+	pdf.SetFont("Arial", "B", 10)
+	pdf.Cell(30, 6, fmt.Sprintf("%d", personagem.Defesa))
+	pdf.SetFont("Arial", "", 10)
+	pdf.Ln(8)
+
+	pdf.Ln(5)
+
+	// Perícias
+	if len(personagem.Pericias) > 0 {
+		pdf.SetFont("Arial", "B", 12)
+		pdf.Cell(190, 8, "PERICIAS")
+		pdf.Ln(10)
+
+		pdf.SetFont("Arial", "", 10)
+		for _, pericia := range personagem.Pericias {
+			pdf.Cell(10, 6, "•")
+			pdf.Cell(180, 6, pericia.Nome)
+			pdf.Ln(6)
+		}
+	}
+
+	// Nova página para anotações
+	pdf.AddPage()
+	pdf.SetFont("Arial", "B", 12)
+	pdf.Cell(190, 8, "ANOTACOES")
+	pdf.Ln(15)
+
+	// Linhas para anotações
+	pdf.SetFont("Arial", "", 10)
+	for i := 0; i < 30; i++ {
+		pdf.Cell(190, 8, "_________________________________________________________________")
+		pdf.Ln(8)
+	}
+
+	// Converter para bytes
+	var buf bytes.Buffer
+	err := pdf.Output(&buf)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao gerar PDF: %v", err)
+	}
+
+	return buf.Bytes(), nil
 }

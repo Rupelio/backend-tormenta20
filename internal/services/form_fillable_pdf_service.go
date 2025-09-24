@@ -32,7 +32,7 @@ func (s *FormFillablePDFService) generateSinglePageFormSheet(pdf *gofpdf.Fpdf, p
 	pdf.AddPage()
 
 	// Configurar fonte Arial padrão
-	pdf.SetFont("Arial", "", 12)
+	pdf.SetFont("Arial", "", 11)
 
 	// Cabeçalho
 	s.addFormHeader(pdf, personagem)
@@ -106,9 +106,11 @@ func (s *FormFillablePDFService) generateDoublePageFormSheet(pdf *gofpdf.Fpdf, p
 
 func (s *FormFillablePDFService) addFormHeader(pdf *gofpdf.Fpdf, personagem *models.Personagem) {
 	// Título centralizado
-	pdf.SetFont("Arial", "B", 16)
-	pdf.CellFormat(0, 10, "FICHA DE PERSONAGEM - TORMENTA20", "", 1, "C", false, 0, "")
-	pdf.Ln(5)
+	pdf.SetFont("Arial", "B", 18)
+	pdf.CellFormat(0, 10, "FICHA DE PERSONAGEM", "", 1, "C", false, 0, "")
+	pdf.SetFont("Arial", "", 10)
+	pdf.CellFormat(0, 6, "TORMENTA20 - FICHA EDITÁVEL", "", 1, "C", false, 0, "")
+	pdf.Ln(4)
 }
 
 func (s *FormFillablePDFService) addFormBasicInfo(pdf *gofpdf.Fpdf, personagem *models.Personagem) {
@@ -117,17 +119,15 @@ func (s *FormFillablePDFService) addFormBasicInfo(pdf *gofpdf.Fpdf, personagem *
 
 	y := pdf.GetY()
 
-	// Nome do Personagem
-	pdf.Text(10, y, "Nome do Personagem:")
-	s.addEditableField(pdf, "character_name", personagem.Nome, 45, y-3, 80, 6)
+	// Nome do Personagem (campo largo)
+	pdf.Text(10, y, "Nome:")
+	s.addEditableField(pdf, "character_name", personagem.Nome, 22, y-3, 110, 8)
 
-	// Nível
-	pdf.Text(135, y, "Nível:")
-	s.addEditableField(pdf, "level", strconv.Itoa(personagem.Nivel), 150, y-3, 20, 6)
-
-	// Experiência
-	pdf.Text(175, y, "Experiência:")
-	s.addEditableField(pdf, "experience", "", 190, y-3, 25, 6)
+	// Nível e Experiência à direita
+	pdf.Text(140, y, "Nível:")
+	s.addEditableField(pdf, "level", strconv.Itoa(personagem.Nivel), 152, y-3, 18, 8)
+	pdf.Text(172, y, "Exp:")
+	s.addEditableField(pdf, "experience", "", 184, y-3, 25, 8)
 
 	pdf.SetY(y + 10)
 	y = pdf.GetY()
@@ -149,52 +149,29 @@ func (s *FormFillablePDFService) addFormBasicInfo(pdf *gofpdf.Fpdf, personagem *
 	}
 
 	pdf.Text(10, y, "Raça:")
-	s.addEditableField(pdf, "race", racaNome, 25, y-3, 45, 6)
+	s.addEditableField(pdf, "race", racaNome, 22, y-3, 55, 8)
 
-	pdf.Text(75, y, "Classe:")
-	s.addEditableField(pdf, "class", classeNome, 90, y-3, 45, 6)
+	pdf.Text(85, y, "Classe:")
+	s.addEditableField(pdf, "class", classeNome, 97, y-3, 55, 8)
 
-	pdf.Text(140, y, "Origem:")
-	s.addEditableField(pdf, "origin", origemNome, 155, y-3, 45, 6)
+	pdf.Text(150, y, "Origem:")
+	s.addEditableField(pdf, "origin", origemNome, 162, y-3, 47, 8)
 
 	pdf.SetY(y + 15)
 }
 
 func (s *FormFillablePDFService) addFormAttributes(pdf *gofpdf.Fpdf, personagem *models.Personagem, showCalculations bool) {
 	// Título da seção
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 12)
-	} else {
-		pdf.SetFont("Arial", "B", 12)
-	}
+	pdf.SetFont("Arial", "B", 12)
 
 	y := pdf.GetY()
 	pdf.Text(90, y, "ATRIBUTOS")
-	pdf.SetY(y + 10)
-
-	// Cabeçalho da tabela
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 9)
-	} else {
-		pdf.SetFont("Arial", "B", 9)
-	}
-
-	y = pdf.GetY()
-	pdf.Text(15, y, "Atributo")
-	pdf.Text(55, y, "Valor")
-	pdf.Text(85, y, "Modificador")
-	pdf.Text(125, y, "Observações")
-
 	pdf.SetY(y + 8)
 
-	// Reset para fonte normal
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "", 9)
-	} else {
-		pdf.SetFont("Arial", "", 9)
-	}
+	// Cabeçalho da tabela
+	pdf.SetFont("Arial", "B", 9)
+	pdf.SetFont("Arial", "", 9)
 
-	// Lista de atributos
 	attributes := []struct {
 		name  string
 		value int
@@ -208,26 +185,44 @@ func (s *FormFillablePDFService) addFormAttributes(pdf *gofpdf.Fpdf, personagem 
 		{"Carisma", personagem.Car, "cha"},
 	}
 
-	for _, attr := range attributes {
-		y = pdf.GetY()
+	// Grid: 2 colunas x 3 linhas
+	baseY := pdf.GetY()
+	rowH := 10.0
+	leftX := 14.0
+	rightX := 104.0
 
-		// Nome do atributo
-		pdf.Text(15, y+4, attr.name)
+	for i, attr := range attributes {
+		var col int
+		var row int
+		if i < 3 {
+			col = 0
+			row = i
+		} else {
+			col = 1
+			row = i - 3
+		}
 
-		// Campo editável para valor
-		s.addEditableField(pdf, attr.field+"_value", strconv.Itoa(attr.value), 55, y, 20, 6)
+		yPos := baseY + float64(row)*rowH
+		var xPos float64
+		if col == 0 {
+			xPos = leftX
+		} else {
+			xPos = rightX
+		}
 
-		// Campo editável para modificador (calculado automaticamente)
-		modifier := attr.value
-		s.addEditableField(pdf, attr.field+"_mod", fmt.Sprintf("%+d", modifier), 85, y, 25, 6)
+		// Rótulo
+		pdf.SetXY(xPos, yPos)
+		pdf.Text(xPos, yPos+4, attr.name)
 
-		// Campo para observações
-		s.addEditableField(pdf, attr.field+"_notes", "", 125, y, 70, 6)
+		// Campo valor
+		s.addEditableField(pdf, attr.field+"_value", strconv.Itoa(attr.value), xPos+30, yPos+1, 20, 8)
 
-		pdf.SetY(y + 8)
+		// Campo modificador
+		s.addEditableField(pdf, attr.field+"_mod", fmt.Sprintf("%+d", attr.value), xPos+54, yPos+1, 18, 8)
 	}
 
-	pdf.Ln(5)
+	// Avançar Y após a grade de atributos
+	pdf.SetY(baseY + 3*rowH + 4)
 }
 
 func (s *FormFillablePDFService) addFormSkills(pdf *gofpdf.Fpdf) {
@@ -236,22 +231,14 @@ func (s *FormFillablePDFService) addFormSkills(pdf *gofpdf.Fpdf) {
 	}
 
 	// Título da seção
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 12)
-	} else {
-		pdf.SetFont("Arial", "B", 12)
-	}
+	pdf.SetFont("Arial", "B", 12)
 
 	y := pdf.GetY()
 	pdf.Text(85, y, "PERÍCIAS")
 	pdf.SetY(y + 10)
 
 	// Cabeçalho
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 8)
-	} else {
-		pdf.SetFont("Arial", "B", 8)
-	}
+	pdf.SetFont("Arial", "B", 8)
 
 	y = pdf.GetY()
 	pdf.Text(15, y, "Perícia")
@@ -263,11 +250,7 @@ func (s *FormFillablePDFService) addFormSkills(pdf *gofpdf.Fpdf) {
 	pdf.SetY(y + 6)
 
 	// Reset para fonte normal
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "", 7)
-	} else {
-		pdf.SetFont("Arial", "", 7)
-	}
+	pdf.SetFont("Arial", "", 7)
 
 	// Lista de perícias principais (reduzida para caber)
 	skills := []string{
@@ -312,22 +295,14 @@ func (s *FormFillablePDFService) addFormInventory(pdf *gofpdf.Fpdf) {
 	}
 
 	// Título
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 12)
-	} else {
-		pdf.SetFont("Arial", "B", 12)
-	}
+	pdf.SetFont("Arial", "B", 12)
 
 	y := pdf.GetY()
 	pdf.Text(85, y, "INVENTÁRIO")
 	pdf.SetY(y + 10)
 
 	// Cabeçalho
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 9)
-	} else {
-		pdf.SetFont("Arial", "B", 9)
-	}
+	pdf.SetFont("Arial", "B", 9)
 
 	y = pdf.GetY()
 	pdf.Text(15, y, "Item")
@@ -360,11 +335,7 @@ func (s *FormFillablePDFService) addFormNotes(pdf *gofpdf.Fpdf) {
 	}
 
 	// Título
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 12)
-	} else {
-		pdf.SetFont("Arial", "B", 12)
-	}
+	pdf.SetFont("Arial", "B", 12)
 
 	y := pdf.GetY()
 	pdf.Text(85, y, "ANOTAÇÕES")
@@ -384,11 +355,7 @@ func (s *FormFillablePDFService) addFormNotes(pdf *gofpdf.Fpdf) {
 
 func (s *FormFillablePDFService) addFormHistory(pdf *gofpdf.Fpdf) {
 	// Título
-	if pdf.Error() == nil {
-		pdf.SetFont("DejaVu", "B", 12)
-	} else {
-		pdf.SetFont("Arial", "B", 12)
-	}
+	pdf.SetFont("Arial", "B", 12)
 
 	y := pdf.GetY()
 	pdf.Text(75, y, "HISTÓRICO DO PERSONAGEM")
