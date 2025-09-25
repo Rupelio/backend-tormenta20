@@ -341,11 +341,17 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 	}
 
 	// Processar perícias
-	database.DB.Model(&personagem).Association("Pericias").Clear()
+	database.DB.Where("personagem_id = ?", id).Delete(&models.PersonagemPericia{})
+
+	// 2. Se houver novas perícias na requisição, nós as criamos uma a uma.
 	if len(req.PericiasSelecionadas) > 0 {
-		var pericias []models.Pericia
-		if err := database.DB.Where("id IN ?", req.PericiasSelecionadas).Find(&pericias).Error; err == nil {
-			database.DB.Model(&personagem).Association("Pericias").Replace(&pericias)
+		for _, periciaID := range req.PericiasSelecionadas {
+			personagemPericia := models.PersonagemPericia{
+				PersonagemID: uint(id),
+				PericiaID:    periciaID,
+				// Você pode adicionar a fonte aqui se necessário
+			}
+			database.DB.Create(&personagemPericia)
 		}
 	}
 
