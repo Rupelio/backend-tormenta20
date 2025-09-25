@@ -1,3 +1,5 @@
+// internal/middleware/user_session.go
+
 package middleware
 
 import (
@@ -15,52 +17,59 @@ const (
 	UserIPHeader      = "X-User-IP"
 )
 
-// UserSessionMiddleware gerencia identificação de usuários via cookie/sessão
 func UserSessionMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Tenta obter sessão existente do cookie
-		sessionID, err := c.Cookie(UserSessionCookie)
+		var sessionID string
 		userIP := getUserIP(c)
-		if err != nil || sessionID == "" {
-			// 2. Se não existe, cria nova sessão
+
+		// 1. Tenta obter sessão do cabeçalho (MAIOR PRIORIDADE)
+		sessionID = c.GetHeader(UserSessionHeader)
+
+		// 2. Se não veio no cabeçalho, tenta obter do cookie
+		if sessionID == "" {
+			cookieSessionID, err := c.Cookie(UserSessionCookie)
+			if err == nil && cookieSessionID != "" {
+				sessionID = cookieSessionID
+			}
+		}
+
+		// 3. Se não existe em nenhum lugar, cria uma nova sessão
+		if sessionID == "" {
 			sessionID = uuid.New().String()
 
-			// 3. Determina se está em HTTPS (produção)
-			isSecure := c.GetHeader("X-Forwarded-Proto") == "https" ||
-				c.Request.TLS != nil ||
-				strings.HasPrefix(c.Request.Host, "backend-tormenta20.fly.dev")
-
-			// 4. Para cross-origin entre domínios diferentes, não definir domínio específico
-			domain := ""
-
-			// Define cookie com sessão
-			c.SetCookie(
-				UserSessionCookie,
-				sessionID,
-				60*60*24*30, // 30 dias
-				"/",
-				domain,   // vazio para permitir cross-origin
-				isSecure, // secure em HTTPS
-				false,    // httpOnly - false para permitir acesso via JS se necessário
-			)
-
 			if userIP != "unknown" {
+				// A lógica de re-associação por IP pode ser mantida como um fallback
 				go func(sid, ip string) {
-					// Atualiza o user_session_id de todos os personagens que correspondem ao IP
-					// mas que têm um ID de sessão diferente ou nulo.
 					database.DB.Exec(
 						"UPDATE personagens SET user_session_id = ? WHERE user_ip = ? AND (user_session_id IS NULL OR user_session_id != ?)",
 						sid, ip, sid,
 					)
-				}(sessionID, userIP) // Passa sessionID e userIP para a goroutine
+				}(sessionID, userIP)
 			}
 		}
 
-		// 4. Adiciona informações ao contexto
+		// 4. Define o cookie (ou atualiza o tempo de expiração do existente)
+		// Isso garante que o cookie seja criado/atualizado mesmo que a sessão venha pelo header
+		isSecure := c.GetHeader("X-Forwarded-Proto") == "https" ||
+			c.Request.TLS != nil ||
+			strings.HasPrefix(c.Request.Host, "backend-tormenta20.fly.dev")
+		domain := "" // Domínio vazio para permitir cross-origin
+
+		c.SetCookie(
+			UserSessionCookie,
+			sessionID,
+			60*60*24*30, // 30 dias
+			"/",
+			domain,
+			isSecure,
+			false, // httpOnly: false para permitir acesso via JS se necessário
+		)
+
+		// 5. Adiciona informações ao contexto
 		c.Set("user_session_id", sessionID)
 		c.Set("user_ip", userIP)
 
-		// 5. Adiciona headers para facilitar debug
+		// 6. Adiciona headers na RESPOSTA para o frontend sempre ter o ID mais atual
 		c.Header(UserSessionHeader, sessionID)
 		c.Header(UserIPHeader, userIP)
 
@@ -68,7 +77,8 @@ func UserSessionMiddleware() gin.HandlerFunc {
 	}
 }
 
-// getUserIP obtém o IP real do usuário considerando proxies e load balancers
+// ... (o resto do arquivo user_session.go permanece o mesmo)
+// getUserIP, GetUserSessionID, GetUserIP, GetUserIdentification
 func getUserIP(c *gin.Context) string {
 	// Verifica headers de proxy mais comuns
 	headers := []string{
