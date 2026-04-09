@@ -37,10 +37,18 @@ type Personagem struct {
 	EscolhasRaca string `json:"escolhas_raca" gorm:"column:escolhas_raca;type:jsonb;default:'{}'"`
 
 	// Atributos livres escolhidos (JSON) - para raças com atributos livres
-	AtributosLivres string  `json:"atributos_livres" gorm:"column:atributos_livres;type:jsonb;default:'[]'"` // Identificação do usuário/sessão
-	UserSessionID   *string `json:"user_session_id" gorm:"column:user_session_id;type:varchar(36)"`
-	UserIP          *string `json:"user_ip" gorm:"column:user_ip;type:inet"`
-	CreatedByType   string  `json:"created_by_type" gorm:"column:created_by_type;default:'session'"`
+	AtributosLivres string  `json:"atributos_livres" gorm:"column:atributos_livres;type:jsonb;default:'[]'"`
+
+	// Campos extras
+	Dinheiro  float64          `json:"dinheiro" gorm:"column:dinheiro;type:decimal(10,2);default:0"`
+	Itens     []PersonagemItem `json:"itens" gorm:"foreignKey:PersonagemID"`
+	Anotacoes string           `json:"anotacoes" gorm:"column:anotacoes;type:text;default:''"`
+	Historico string           `json:"historico" gorm:"column:historico;type:text;default:''"`
+
+	// Identificação do usuário/sessão
+	UserSessionID *string `json:"user_session_id" gorm:"column:user_session_id;type:varchar(36)"`
+	UserIP        *string `json:"user_ip" gorm:"column:user_ip;type:inet"`
+	CreatedByType string  `json:"created_by_type" gorm:"column:created_by_type;default:'session'"`
 
 	// Stats calculados (não salvos no DB)
 	PVTotal int `json:"pv_total" gorm:"-"`
@@ -49,6 +57,18 @@ type Personagem struct {
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PersonagemItem representa um item no inventário do personagem
+type PersonagemItem struct {
+	ID           uint    `json:"id" gorm:"primaryKey"`
+	PersonagemID uint    `json:"personagem_id"`
+	Nome         string  `json:"nome"`
+	Tipo         string  `json:"tipo" gorm:"default:'item'"` // arma, armadura, item, consumivel
+	Quantidade   int     `json:"quantidade" gorm:"default:1"`
+	Peso         float64 `json:"peso" gorm:"type:decimal(8,2);default:0"`
+	Valor        float64 `json:"valor" gorm:"type:decimal(10,2);default:0"` // em T$
+	Descricao    string  `json:"descricao" gorm:"type:text;default:''"`
 }
 
 func (Personagem) TableName() string {
@@ -86,7 +106,9 @@ type Raca struct {
 type Classe struct {
 	gorm.Model
 	Nome                string             `json:"nome"`
+	PVPrimeiroNivel     int                `json:"pvprimeironivelc" gorm:"column:pv_primeiro_nivel"`
 	PVPorNivel          int                `json:"pvpornivel" gorm:"column:pv_por_nivel"`
+	PMPrimeiroNivel     int                `json:"pmprimeironivelc" gorm:"column:pm_primeiro_nivel"`
 	PMPorNivel          int                `json:"pmpornivel" gorm:"column:pm_por_nivel"`
 	AtributoPrincipal   string             `json:"atributoprincipal" gorm:"column:atributo_principal"`
 	PericiasQuantidade  int                `json:"pericias_quantidade" gorm:"column:pericias_quantidade;default:2"`

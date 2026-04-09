@@ -454,16 +454,31 @@ func (h *PersonagemHandler) CalculateStats(c *gin.Context) {
 		return
 	}
 
-	// No Tormenta 20, os valores de atributo recebidos já incluem bônus raciais
-	// aplicados pelo frontend (base point-buy + racial). Modificador = valor do atributo.
+	// Valores de atributo ja incluem bonus raciais (base + racial)
 	modCon := personagemData.Constituicao
 	modDes := personagemData.Destreza
 
-	// PV = (PV por nível da classe + mod CON) × nível
-	pvTotal := (classe.PVPorNivel + modCon) * personagemData.Nivel
+	// PV primeiro nivel
+	pvPrimeiroNivel := classe.PVPrimeiroNivel
+	if pvPrimeiroNivel == 0 {
+		pvPrimeiroNivel = classe.PVPorNivel
+	}
+	pmPrimeiroNivel := classe.PMPrimeiroNivel
+	if pmPrimeiroNivel == 0 {
+		pmPrimeiroNivel = classe.PMPorNivel
+	}
 
-	// PM = PM por nível da classe × nível (T20 não usa mod de atributo no PM base)
-	pmTotal := classe.PMPorNivel * personagemData.Nivel
+	// PV = pvPrimeiroNivel + modCON + (pvPorNivel + modCON) * (nivel - 1)
+	pvTotal := pvPrimeiroNivel + modCon
+	if personagemData.Nivel > 1 {
+		pvTotal += (classe.PVPorNivel + modCon) * (personagemData.Nivel - 1)
+	}
+
+	// PM = pmPrimeiroNivel + pmPorNivel * (nivel - 1)
+	pmTotal := pmPrimeiroNivel
+	if personagemData.Nivel > 1 {
+		pmTotal += classe.PMPorNivel * (personagemData.Nivel - 1)
+	}
 
 	// Defesa = 10 + mod DES (armadura seria adicionada separadamente)
 	defesa := 10 + modDes
@@ -738,44 +753,57 @@ func (h *PersonagemHandler) loadPersonagemPericias(personagem *models.Personagem
 }
 
 // calculatePersonagemStats calcula e preenche os stats (PV, PM, Defesa) de um personagem.
-// Aplica bônus raciais de atributo sobre os valores base do point-buy.
-// Regras T20: PV = (pvPorNivel + modCON) × nível, PM = pmPorNivel × nível, Defesa = 10 + modDES.
+// IMPORTANTE: personagem.Con/Des ja armazena valores FINAIS (base + racial), nao adicionar racial novamente.
+// Regras T20:
+//   1o nivel: PV = pvPrimeiroNivel + modCON
+//   Niveis 2+: PV += pvPorNivel + modCON por nivel
+//   Total: pvPrimeiroNivel + modCON + (pvPorNivel + modCON) * (nivel - 1)
 func (h *PersonagemHandler) calculatePersonagemStats(personagem *models.Personagem) {
 	if personagem.ClasseID == 0 {
 		return
 	}
 
-	// Buscar dados da classe se não estiver carregada
-	var pvPorNivel, pmPorNivel int
+	var pvPrimeiroNivel, pvPorNivel, pmPrimeiroNivel, pmPorNivel int
 	if personagem.Classe.ID == 0 {
 		var classe models.Classe
 		if err := h.DB.First(&classe, personagem.ClasseID).Error; err == nil {
+			pvPrimeiroNivel = classe.PVPrimeiroNivel
 			pvPorNivel = classe.PVPorNivel
+			pmPrimeiroNivel = classe.PMPrimeiroNivel
 			pmPorNivel = classe.PMPorNivel
-		} else {
-			pvPorNivel = 4
-			pmPorNivel = 2
 		}
 	} else {
+		pvPrimeiroNivel = personagem.Classe.PVPrimeiroNivel
 		pvPorNivel = personagem.Classe.PVPorNivel
+		pmPrimeiroNivel = personagem.Classe.PMPrimeiroNivel
 		pmPorNivel = personagem.Classe.PMPorNivel
 	}
 
-	// Calcular bônus racial para CON e DES
-	bonusCon := h.getRacialBonus(personagem, "con")
-	bonusDes := h.getRacialBonus(personagem, "des")
+	// Fallback: se pv_primeiro_nivel nao estiver preenchido, usar pv_por_nivel
+	if pvPrimeiroNivel == 0 {
+		pvPrimeiroNivel = pvPorNivel
+	}
+	if pmPrimeiroNivel == 0 {
+		pmPrimeiroNivel = pmPorNivel
+	}
 
-	// Modificador final = valor base (point-buy) + bônus racial
-	modCon := personagem.Con + bonusCon
-	modDes := personagem.Des + bonusDes
+	// personagem.Con e personagem.Des ja sao valores FINAIS (base + racial)
+	modCon := personagem.Con
+	modDes := personagem.Des
 
-	// PV = (PV por nível da classe + mod CON final) × nível
-	pvTotal := (pvPorNivel + modCon) * personagem.Nivel
+	// PV = pvPrimeiroNivel + modCON + (pvPorNivel + modCON) * (nivel - 1)
+	pvTotal := pvPrimeiroNivel + modCon
+	if personagem.Nivel > 1 {
+		pvTotal += (pvPorNivel + modCon) * (personagem.Nivel - 1)
+	}
 
-	// PM = PM por nível da classe × nível
-	pmTotal := pmPorNivel * personagem.Nivel
+	// PM = pmPrimeiroNivel + (pmPorNivel) * (nivel - 1)
+	pmTotal := pmPrimeiroNivel
+	if personagem.Nivel > 1 {
+		pmTotal += pmPorNivel * (personagem.Nivel - 1)
+	}
 
-	// Defesa = 10 + mod DES final
+	// Defesa = 10 + mod DES
 	defesa := 10 + modDes
 
 	if pvTotal < 1 {
@@ -788,57 +816,6 @@ func (h *PersonagemHandler) calculatePersonagemStats(personagem *models.Personag
 	personagem.PVTotal = pvTotal
 	personagem.PMTotal = pmTotal
 	personagem.Defesa = defesa
-}
-
-// getRacialBonus calcula o bônus racial para um atributo específico.
-// Considera bônus fixos da raça e atributos livres escolhidos pelo jogador.
-func (h *PersonagemHandler) getRacialBonus(personagem *models.Personagem, atributo string) int {
-	raca := personagem.Raca
-	if raca.ID == 0 {
-		var r models.Raca
-		if err := h.DB.First(&r, personagem.RacaID).Error; err != nil {
-			return 0
-		}
-		raca = r
-	}
-
-	bonus := 0
-
-	// Verificar se a raça tem atributos livres
-	temLivre := strings.EqualFold(raca.AtributoBonus1, "livre") ||
-		strings.EqualFold(raca.AtributoBonus2, "livre") ||
-		strings.EqualFold(raca.AtributoBonus3, "livre")
-
-	if temLivre {
-		// Verificar nos atributos livres escolhidos pelo jogador
-		var atributosLivres []string
-		if personagem.AtributosLivres != "" && personagem.AtributosLivres != "[]" {
-			json.Unmarshal([]byte(personagem.AtributosLivres), &atributosLivres)
-		}
-		for _, al := range atributosLivres {
-			if strings.EqualFold(al, atributo) {
-				bonus += 1
-			}
-		}
-	} else {
-		// Bônus fixos
-		if strings.EqualFold(raca.AtributoBonus1, atributo) {
-			bonus += raca.ValorBonus1
-		}
-		if strings.EqualFold(raca.AtributoBonus2, atributo) {
-			bonus += raca.ValorBonus2
-		}
-		if strings.EqualFold(raca.AtributoBonus3, atributo) {
-			bonus += raca.ValorBonus3
-		}
-	}
-
-	// Penalidade racial
-	if strings.EqualFold(raca.AtributoPenalidade, atributo) && raca.ValorPenalidade != 0 {
-		bonus += raca.ValorPenalidade
-	}
-
-	return bonus
 }
 
 // loadPersonagemCompleteData carrega todas as relações necessárias de um personagem
