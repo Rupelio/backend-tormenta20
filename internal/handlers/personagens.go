@@ -35,6 +35,12 @@ type PersonagemRequest struct {
 	DivindadeID  *uint  `json:"divindade_id"`
 	EscolhasRaca string `json:"escolhas_raca"`
 
+	// Campos extras
+	Dinheiro  *float64               `json:"dinheiro"`
+	Anotacoes *string                `json:"anotacoes"`
+	Historico *string                `json:"historico"`
+	Itens     []models.PersonagemItem `json:"itens"`
+
 	// Dados complementares
 	AtributosLivres      []string `json:"atributosLivres"`       // Array de atributos livres escolhidos
 	PericiasSelecionadas []uint   `json:"pericias_selecionadas"` // IDs das perícias selecionadas
@@ -110,7 +116,7 @@ func (h *PersonagemHandler) GetAllPersonagens(c *gin.Context) {
 	sessionID, userIP := middleware.GetUserIdentification(c)
 
 	// Constrói query para filtrar personagens do usuário
-	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade")
+	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade").Preload("Itens")
 
 	if sessionID != "" && userIP != "" {
 		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
@@ -152,7 +158,7 @@ func (h *PersonagemHandler) GetPersonagem(c *gin.Context) {
 	sessionID, userIP := middleware.GetUserIdentification(c)
 
 	// Constrói query para buscar personagem do usuário
-	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade")
+	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade").Preload("Itens")
 
 	if sessionID != "" && userIP != "" {
 		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
@@ -210,6 +216,17 @@ func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 		personagem.EscolhasRaca = "{}"
 	} else {
 		personagem.EscolhasRaca = req.EscolhasRaca
+	}
+
+	// Campos extras
+	if req.Dinheiro != nil {
+		personagem.Dinheiro = *req.Dinheiro
+	}
+	if req.Anotacoes != nil {
+		personagem.Anotacoes = *req.Anotacoes
+	}
+	if req.Historico != nil {
+		personagem.Historico = *req.Historico
 	}
 
 	if len(req.AtributosLivres) > 0 {
@@ -271,7 +288,16 @@ func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 		}
 	}
 
-	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade").First(&personagem, personagem.ID).Error; err != nil {
+	// Salvar itens do inventario
+	if len(req.Itens) > 0 {
+		for i := range req.Itens {
+			req.Itens[i].PersonagemID = personagem.ID
+			req.Itens[i].ID = 0
+		}
+		database.DB.Create(&req.Itens)
+	}
+
+	if err := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade").Preload("Itens").First(&personagem, personagem.ID).Error; err != nil {
 		h.Response.InternalError(c, "Erro ao carregar personagem criado")
 		return
 	}
@@ -324,6 +350,17 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 		personagem.EscolhasRaca = req.EscolhasRaca
 	}
 
+	// Campos extras
+	if req.Dinheiro != nil {
+		personagem.Dinheiro = *req.Dinheiro
+	}
+	if req.Anotacoes != nil {
+		personagem.Anotacoes = *req.Anotacoes
+	}
+	if req.Historico != nil {
+		personagem.Historico = *req.Historico
+	}
+
 	if len(req.AtributosLivres) > 0 {
 		atributosLivresJSON, err := json.Marshal(req.AtributosLivres)
 		if err != nil {
@@ -338,6 +375,16 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 	if err := database.DB.Save(&personagem).Error; err != nil {
 		h.Response.InternalError(c, "Erro ao atualizar personagem")
 		return
+	}
+
+	// Atualizar itens: remove antigos, insere novos
+	database.DB.Where("personagem_id = ?", id).Delete(&models.PersonagemItem{})
+	if len(req.Itens) > 0 {
+		for i := range req.Itens {
+			req.Itens[i].PersonagemID = uint(id)
+			req.Itens[i].ID = 0
+		}
+		database.DB.Create(&req.Itens)
 	}
 
 	// Processar perícias
@@ -376,6 +423,9 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 			database.DB.Create(&beneficioPoder)
 		}
 	}
+
+	// Recarregar com itens
+	database.DB.Preload("Itens").First(personagem, id)
 
 	h.loadPersonagemPericias(personagem)
 	h.calculatePersonagemStats(personagem)
