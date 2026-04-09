@@ -21,17 +21,17 @@ import (
 // PersonagemRequest representa os dados recebidos do frontend
 type PersonagemRequest struct {
 	// Dados do personagem
-	Nome         string `json:"nome" validate:"required,min=2"`
+	Nome         string `json:"nome" validate:"required,min=2,max=100"`
 	Nivel        int    `json:"nivel" validate:"min=1,max=20"`
-	For          int    `json:"for" validate:"min=0,max=4"`
-	Des          int    `json:"des" validate:"min=0,max=4"`
-	Con          int    `json:"con" validate:"min=0,max=4"`
-	Int          int    `json:"int" validate:"min=0,max=4"`
-	Sab          int    `json:"sab" validate:"min=0,max=4"`
-	Car          int    `json:"car" validate:"min=0,max=4"`
-	RacaID       uint   `json:"raca_id"`
-	ClasseID     uint   `json:"classe_id"`
-	OrigemID     uint   `json:"origem_id"`
+	For          int    `json:"for" validate:"min=-1,max=4"`
+	Des          int    `json:"des" validate:"min=-1,max=4"`
+	Con          int    `json:"con" validate:"min=-1,max=4"`
+	Int          int    `json:"int" validate:"min=-1,max=4"`
+	Sab          int    `json:"sab" validate:"min=-1,max=4"`
+	Car          int    `json:"car" validate:"min=-1,max=4"`
+	RacaID       uint   `json:"raca_id" validate:"required,min=1"`
+	ClasseID     uint   `json:"classe_id" validate:"required,min=1"`
+	OrigemID     uint   `json:"origem_id" validate:"required,min=1"`
 	DivindadeID  *uint  `json:"divindade_id"`
 	EscolhasRaca string `json:"escolhas_raca"`
 
@@ -42,10 +42,10 @@ type PersonagemRequest struct {
 	Itens     []models.PersonagemItem `json:"itens"`
 
 	// Dados complementares
-	AtributosLivres      []string `json:"atributosLivres"`       // Array de atributos livres escolhidos
-	PericiasSelecionadas []uint   `json:"pericias_selecionadas"` // IDs das perícias selecionadas
-	PoderesClasse        []uint   `json:"poderes_classe"`        // IDs dos poderes de classe
-	PoderesDivinos       []uint   `json:"poderes_divinos"`       // IDs dos poderes divinos
+	AtributosLivres      []string `json:"atributosLivres"`
+	PericiasSelecionadas []uint   `json:"pericias_selecionadas"`
+	PoderesClasse        []uint   `json:"poderes_classe"`
+	PoderesDivinos       []uint   `json:"poderes_divinos"`
 
 	BeneficiosOrigemPericias []uint `json:"beneficios_origem_pericias"`
 	BeneficiosOrigemPoderes  []uint `json:"beneficios_origem_poderes"`
@@ -59,6 +59,109 @@ func NewPersonagemHandler() *PersonagemHandler {
 	return &PersonagemHandler{
 		GenericService: NewGenericService(database.DB),
 	}
+}
+
+// getPointBuyCost retorna o custo de um valor de atributo no point-buy T20
+func getPointBuyCost(value int) int {
+	switch value {
+	case -1:
+		return -1
+	case 0:
+		return 0
+	case 1:
+		return 1
+	case 2:
+		return 2
+	case 3:
+		return 4
+	case 4:
+		return 7
+	default:
+		return 99 // Valor invalido = custo absurdo
+	}
+}
+
+// validateRequest valida todos os campos do PersonagemRequest server-side.
+// Nao confia em NADA que venha do frontend.
+func (h *PersonagemHandler) validateRequest(req *PersonagemRequest) error {
+	// 1. Validar point-buy: custo total dos atributos deve ser <= 10
+	totalCost := getPointBuyCost(req.For) + getPointBuyCost(req.Des) + getPointBuyCost(req.Con) +
+		getPointBuyCost(req.Int) + getPointBuyCost(req.Sab) + getPointBuyCost(req.Car)
+	if totalCost > 10 {
+		return fmt.Errorf("custo total de atributos (%d) excede o limite de 10 pontos", totalCost)
+	}
+
+	// 2. Validar que raca, classe e origem existem
+	var count int64
+	if err := database.DB.Model(&models.Raca{}).Where("id = ?", req.RacaID).Count(&count).Error; err != nil || count == 0 {
+		return fmt.Errorf("raça com ID %d não encontrada", req.RacaID)
+	}
+	if err := database.DB.Model(&models.Classe{}).Where("id = ?", req.ClasseID).Count(&count).Error; err != nil || count == 0 {
+		return fmt.Errorf("classe com ID %d não encontrada", req.ClasseID)
+	}
+	if err := database.DB.Model(&models.Origem{}).Where("id = ?", req.OrigemID).Count(&count).Error; err != nil || count == 0 {
+		return fmt.Errorf("origem com ID %d não encontrada", req.OrigemID)
+	}
+	if req.DivindadeID != nil && *req.DivindadeID > 0 {
+		if err := database.DB.Model(&models.Divindade{}).Where("id = ?", *req.DivindadeID).Count(&count).Error; err != nil || count == 0 {
+			return fmt.Errorf("divindade com ID %d não encontrada", *req.DivindadeID)
+		}
+	}
+
+	// 3. Validar dinheiro >= 0
+	if req.Dinheiro != nil && *req.Dinheiro < 0 {
+		return fmt.Errorf("dinheiro não pode ser negativo")
+	}
+
+	// 4. Validar itens
+	for i, item := range req.Itens {
+		if item.Quantidade < 1 {
+			return fmt.Errorf("item %d: quantidade deve ser >= 1", i+1)
+		}
+		if item.Quantidade > 9999 {
+			return fmt.Errorf("item %d: quantidade excede o limite", i+1)
+		}
+		if item.Peso < 0 {
+			return fmt.Errorf("item %d: peso não pode ser negativo", i+1)
+		}
+		if item.Valor < 0 {
+			return fmt.Errorf("item %d: valor não pode ser negativo", i+1)
+		}
+		if len(item.Nome) == 0 || len(item.Nome) > 200 {
+			return fmt.Errorf("item %d: nome deve ter 1-200 caracteres", i+1)
+		}
+	}
+	if len(req.Itens) > 50 {
+		return fmt.Errorf("máximo de 50 itens por personagem")
+	}
+
+	// 5. Validar limite de pericias por classe
+	if len(req.PericiasSelecionadas) > 0 {
+		var classe models.Classe
+		if err := database.DB.First(&classe, req.ClasseID).Error; err == nil {
+			maxPericias := classe.PericiasQuantidade
+			if maxPericias == 0 {
+				maxPericias = 2 // fallback
+			}
+			// Permitir margem para pericias de bonus (origem, raca, etc.)
+			if len(req.PericiasSelecionadas) > maxPericias+10 {
+				return fmt.Errorf("número de perícias (%d) excede o limite permitido", len(req.PericiasSelecionadas))
+			}
+		}
+	}
+
+	// 6. Validar tamanho de campos texto
+	if req.Anotacoes != nil && len(*req.Anotacoes) > 10000 {
+		return fmt.Errorf("anotações excede o limite de 10.000 caracteres")
+	}
+	if req.Historico != nil && len(*req.Historico) > 50000 {
+		return fmt.Errorf("histórico excede o limite de 50.000 caracteres")
+	}
+	if len(req.EscolhasRaca) > 5000 {
+		return fmt.Errorf("escolhas de raça excede o limite")
+	}
+
+	return nil
 }
 
 // findPersonagemByUser busca um personagem que pertence ao usuário (por sessão OU IP)
@@ -197,6 +300,12 @@ func (h *PersonagemHandler) CreatePersonagem(c *gin.Context) {
 		return
 	}
 
+	// Validacao server-side completa - NUNCA confiar no frontend
+	if err := h.validateRequest(&req); err != nil {
+		h.Response.BadRequest(c, err.Error())
+		return
+	}
+
 	personagem := models.Personagem{
 		Nome:        req.Nome,
 		Nivel:       req.Nivel,
@@ -327,6 +436,12 @@ func (h *PersonagemHandler) UpdatePersonagem(c *gin.Context) {
 
 	var req PersonagemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.Response.BadRequest(c, err.Error())
+		return
+	}
+
+	// Validacao server-side completa - NUNCA confiar no frontend
+	if err := h.validateRequest(&req); err != nil {
 		h.Response.BadRequest(c, err.Error())
 		return
 	}
