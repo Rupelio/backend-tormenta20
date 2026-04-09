@@ -246,7 +246,7 @@ func (h *PersonagemHandler) GetPersonagem(c *gin.Context) {
 	sessionID, userIP := middleware.GetUserIdentification(c)
 
 	// Constrói query para buscar personagem do usuário
-	query := database.DB.Preload("Raca").Preload("Classe").Preload("Origem").Preload("Divindade").Preload("Itens")
+	query := database.DB.Preload("Raca").Preload("Raca.Habilidades").Preload("Classe").Preload("Classe.Habilidades").Preload("Origem").Preload("Origem.Itens").Preload("Divindade").Preload("Itens")
 
 	if sessionID != "" && userIP != "" {
 		// Se tem ambos, busca por qualquer um dos dois (para lidar com sessões que mudam)
