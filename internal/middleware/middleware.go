@@ -20,8 +20,9 @@ func SetupCORS() gin.HandlerFunc {
 			"https://backend-tormenta20.fly.dev",
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
-		AllowCredentials: true, // Habilitar credentials com origens específicas
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-User-Session-ID"},
+		ExposeHeaders:    []string{"X-User-Session-ID", "X-User-IP"},
+		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	})
 }

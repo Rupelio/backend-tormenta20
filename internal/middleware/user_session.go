@@ -4,6 +4,7 @@ package middleware
 
 import (
 	"net"
+	"net/http"
 	"strings"
 	"tormenta20-builder/internal/database"
 
@@ -49,20 +50,25 @@ func UserSessionMiddleware() gin.HandlerFunc {
 		}
 
 		// 4. Define o cookie (ou atualiza o tempo de expiração do existente)
-		// Isso garante que o cookie seja criado/atualizado mesmo que a sessão venha pelo header
 		isSecure := c.GetHeader("X-Forwarded-Proto") == "https" ||
 			c.Request.TLS != nil ||
 			strings.HasPrefix(c.Request.Host, "backend-tormenta20.fly.dev")
-		domain := "" // Domínio vazio para permitir cross-origin
+
+		// Para cross-origin com credentials, precisamos SameSite=None + Secure
+		if isSecure {
+			c.SetSameSite(http.SameSiteNoneMode)
+		} else {
+			c.SetSameSite(http.SameSiteLaxMode)
+		}
 
 		c.SetCookie(
 			UserSessionCookie,
 			sessionID,
-			60*60*24*30, // 30 dias
+			60*60*24*365, // 365 dias
 			"/",
-			domain,
+			"",
 			isSecure,
-			false, // httpOnly: false para permitir acesso via JS se necessário
+			false,
 		)
 
 		// 5. Adiciona informações ao contexto
