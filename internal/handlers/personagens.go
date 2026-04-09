@@ -23,12 +23,13 @@ type PersonagemRequest struct {
 	// Dados do personagem
 	Nome         string `json:"nome" validate:"required,min=2,max=100"`
 	Nivel        int    `json:"nivel" validate:"min=1,max=20"`
-	For          int    `json:"for" validate:"min=-1,max=4"`
-	Des          int    `json:"des" validate:"min=-1,max=4"`
-	Con          int    `json:"con" validate:"min=-1,max=4"`
-	Int          int    `json:"int" validate:"min=-1,max=4"`
-	Sab          int    `json:"sab" validate:"min=-1,max=4"`
-	Car          int    `json:"car" validate:"min=-1,max=4"`
+	// Atributos: valores FINAIS (base + racial), nao base. Racial pode dar +2, penalidade -1.
+	For          int    `json:"for" validate:"min=-2,max=10"`
+	Des          int    `json:"des" validate:"min=-2,max=10"`
+	Con          int    `json:"con" validate:"min=-2,max=10"`
+	Int          int    `json:"int" validate:"min=-2,max=10"`
+	Sab          int    `json:"sab" validate:"min=-2,max=10"`
+	Car          int    `json:"car" validate:"min=-2,max=10"`
 	RacaID       uint   `json:"raca_id" validate:"required,min=1"`
 	ClasseID     uint   `json:"classe_id" validate:"required,min=1"`
 	OrigemID     uint   `json:"origem_id" validate:"required,min=1"`
@@ -61,34 +62,18 @@ func NewPersonagemHandler() *PersonagemHandler {
 	}
 }
 
-// getPointBuyCost retorna o custo de um valor de atributo no point-buy T20
-func getPointBuyCost(value int) int {
-	switch value {
-	case -1:
-		return -1
-	case 0:
-		return 0
-	case 1:
-		return 1
-	case 2:
-		return 2
-	case 3:
-		return 4
-	case 4:
-		return 7
-	default:
-		return 99 // Valor invalido = custo absurdo
-	}
-}
-
 // validateRequest valida todos os campos do PersonagemRequest server-side.
 // Nao confia em NADA que venha do frontend.
 func (h *PersonagemHandler) validateRequest(req *PersonagemRequest) error {
-	// 1. Validar point-buy: custo total dos atributos deve ser <= 10
-	totalCost := getPointBuyCost(req.For) + getPointBuyCost(req.Des) + getPointBuyCost(req.Con) +
-		getPointBuyCost(req.Int) + getPointBuyCost(req.Sab) + getPointBuyCost(req.Car)
-	if totalCost > 10 {
-		return fmt.Errorf("custo total de atributos (%d) excede o limite de 10 pontos", totalCost)
+	// 1. Validar atributos: recebemos valores FINAIS (base + racial).
+	// Point-buy base max = 4, racial max = +2, entao maximo razoavel = 6.
+	// Soma total: point-buy 10 pontos base + raciais (~3) = nunca passa de ~30.
+	totalAtributos := req.For + req.Des + req.Con + req.Int + req.Sab + req.Car
+	if totalAtributos > 30 {
+		return fmt.Errorf("soma total de atributos (%d) excede o limite permitido", totalAtributos)
+	}
+	if totalAtributos < -6 {
+		return fmt.Errorf("soma total de atributos inválida")
 	}
 
 	// 2. Validar que raca, classe e origem existem

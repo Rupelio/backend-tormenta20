@@ -30,12 +30,25 @@ func (h *OrigemHandler) RegisterRoutes(rg *gin.RouterGroup) {
 
 func (h *OrigemHandler) GetAllOrigens(c *gin.Context) {
 	var origens []models.Origem
-	h.GetAll(c, &origens)
+	if err := database.DB.Preload("Pericias").Preload("Itens").Preload("Habilidades").Find(&origens).Error; err != nil {
+		h.Response.InternalError(c, "Erro ao buscar origens")
+		return
+	}
+	c.JSON(200, origens)
 }
 
 func (h *OrigemHandler) GetOrigem(c *gin.Context) {
+	id, err := parseID(c)
+	if err != nil {
+		h.Response.BadRequest(c, "ID inválido")
+		return
+	}
 	var origem models.Origem
-	h.GetByID(c, &origem, "Origem não encontrada")
+	if err := database.DB.Preload("Pericias").Preload("Itens").Preload("Habilidades").First(&origem, id).Error; err != nil {
+		h.Response.NotFound(c, "Origem não encontrada")
+		return
+	}
+	h.Response.Success(c, origem)
 }
 
 func (h *OrigemHandler) CreateOrigem(c *gin.Context) {

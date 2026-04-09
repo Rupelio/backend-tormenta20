@@ -109,16 +109,34 @@ type Raca struct {
 
 type Classe struct {
 	gorm.Model
-	Nome                string             `json:"nome"`
-	PVPrimeiroNivel     int                `json:"pvprimeironivelc" gorm:"column:pv_primeiro_nivel"`
-	PVPorNivel          int                `json:"pvpornivel" gorm:"column:pv_por_nivel"`
-	PMPrimeiroNivel     int                `json:"pmprimeironivelc" gorm:"column:pm_primeiro_nivel"`
-	PMPorNivel          int                `json:"pmpornivel" gorm:"column:pm_por_nivel"`
-	AtributoPrincipal   string             `json:"atributoprincipal" gorm:"column:atributo_principal"`
-	PericiasQuantidade  int                `json:"pericias_quantidade" gorm:"column:pericias_quantidade;default:2"`
-	Habilidades         []HabilidadeClasse `json:"habilidades" gorm:"foreignKey:ClasseID"`
-	PericiasDisponiveis []Pericia          `json:"pericias_disponiveis" gorm:"many2many:classe_pericias_disponiveis;"`
-	PericiasAutomaticas []Pericia          `json:"pericias_automaticas" gorm:"many2many:classe_pericias_automaticas;"`
+	Nome                 string             `json:"nome"`
+	PVPrimeiroNivel      int                `json:"pvprimeironivelc" gorm:"column:pv_primeiro_nivel"`
+	PVPorNivel           int                `json:"pvpornivel" gorm:"column:pv_por_nivel"`
+	PMPrimeiroNivel      int                `json:"pmprimeironivelc" gorm:"column:pm_primeiro_nivel"`
+	PMPorNivel           int                `json:"pmpornivel" gorm:"column:pm_por_nivel"`
+	AtributoPrincipal    string             `json:"atributoprincipal" gorm:"column:atributo_principal"`
+	PericiasQuantidade   int                `json:"pericias_quantidade" gorm:"column:pericias_quantidade;default:2"`
+	ProfArmasSimples     bool               `json:"prof_armas_simples" gorm:"column:prof_armas_simples;default:true"`
+	ProfArmasMarciais    bool               `json:"prof_armas_marciais" gorm:"column:prof_armas_marciais;default:false"`
+	ProfArmadurasLeves   bool               `json:"prof_armaduras_leves" gorm:"column:prof_armaduras_leves;default:false"`
+	ProfArmadurasPesadas bool               `json:"prof_armaduras_pesadas" gorm:"column:prof_armaduras_pesadas;default:false"`
+	ProfEscudos          bool               `json:"prof_escudos" gorm:"column:prof_escudos;default:false"`
+	Habilidades          []HabilidadeClasse `json:"habilidades" gorm:"foreignKey:ClasseID"`
+	PericiasDisponiveis  []Pericia          `json:"pericias_disponiveis" gorm:"many2many:classe_pericias_disponiveis;"`
+	PericiasAutomaticas  []Pericia          `json:"pericias_automaticas" gorm:"many2many:classe_pericias_automaticas;"`
+}
+
+type OrigemItem struct {
+	ID         uint   `json:"id" gorm:"primaryKey"`
+	OrigemID   uint   `json:"origem_id"`
+	Nome       string `json:"nome"`
+	Tipo       string `json:"tipo" gorm:"default:'item'"`
+	Quantidade int    `json:"quantidade" gorm:"default:1"`
+	Descricao  string `json:"descricao" gorm:"type:text;default:''"`
+}
+
+func (OrigemItem) TableName() string {
+	return "origem_itens"
 }
 
 type Origem struct {
@@ -126,6 +144,7 @@ type Origem struct {
 	Nome        string             `json:"nome"`
 	Descricao   string             `json:"descricao"`
 	Pericias    []Pericia          `json:"pericias" gorm:"many2many:origem_pericias;"`
+	Itens       []OrigemItem       `json:"itens" gorm:"foreignKey:OrigemID"`
 	Habilidades []HabilidadeOrigem `json:"habilidades" gorm:"foreignKey:OrigemID"`
 }
 
