@@ -71,6 +71,10 @@ type PersonagemItem struct {
 	Descricao    string  `json:"descricao" gorm:"type:text;default:''"`
 }
 
+func (PersonagemItem) TableName() string {
+	return "personagem_itens"
+}
+
 func (Personagem) TableName() string {
 	return "personagens"
 }
